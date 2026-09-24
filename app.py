@@ -699,6 +699,9 @@ class Api:
 
 
 def main():
+    extra = os.environ.get("FLIP_BROWSER_ARGS")
+    if extra:  # the build's app test gives the window a fake mic; pywebview only lets flags ride along here
+        webview.settings["REMOTE_DEBUGGING_PORT"] = f"0 {extra}"
     settings = load_settings()
     api = Api(settings)
     atexit.register(api._engine.stop)
