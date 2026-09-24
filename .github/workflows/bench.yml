@@ -1,0 +1,16 @@
+name: Speech-to-text benchmark
+
+on:
+  push:
+    branches: [bench]
+
+jobs:
+  bench:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python tests/bench_stt.py
