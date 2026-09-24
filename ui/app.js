@@ -84,11 +84,28 @@ function esc(s) {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
+// Math like $x^2$ or $$\frac{a}{b}$$ (also \( \) and \[ \]) becomes real formulas.
+const MATH = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$(?![\s$])([^$\n]+?)(?<!\s)\$(?!\d)/g;
+
+function renderMath(tex, display) {
+  if (!window.katex) return null;
+  try { return katex.renderToString(tex, { displayMode: display, throwOnError: false, output: 'html' }); } catch (e) { return null; }
+}
+
 function inline(t) {
+  const math = [];
+  t = t.replace(MATH, (all, d1, d2, i1, i2) => {
+    const html = renderMath(d1 || d2 || i1 || i2, !!(d1 || d2));
+    if (html == null) return all;
+    math.push(html);
+    return (d1 || d2) ? `\u0001${math.length - 1}\u0001` : `\u0000${math.length - 1}\u0000`;
+  });
+  t = t.replace(/\n*\u0001(\d+)\u0001\n*/g, '\u0000$1\u0000');  // formulas on their own line bring their own spacing
   return esc(t)
     .replace(/`([^`\n]+)`/g, '<code class="inline">$1</code>')
     .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
-    .replace(/\n/g, '<br>');
+    .replace(/\n/g, '<br>')
+    .replace(/\u0000(\d+)\u0000/g, (_, i) => math[+i]);
 }
 
 function format(text) {
@@ -180,6 +197,7 @@ window.onText = (piece) => {
   if (stream.talk && (voiceOn || !muted)) speaker.feed(piece);
   if (voiceOn) $('#cap-pet').textContent = captionText(stream.text);
   if (!['working', 'talking'].includes(pet.state)) setState('thinking', 'typing…');
+  else if (pet.state === 'working') setState('thinking', 'typing…');
   if (stick) toBottom();
 };
 
@@ -197,8 +215,17 @@ window.onResetText = () => {
 window.onTool = (name) => {
   if (name === 'remember') { addNote('🧠 saved to memory'); return; }
   if (name === 'forget') { addNote('🧠 forgot something'); return; }
-  setState('working');
-  addNote(`🔧 ${name.replace(/_/g, ' ')}`);
+  if (name === 'math') { setState('working', 'calculating…'); return; }
+  setState('working', 'working in Roblox Studio…');
+};
+
+// Called from Python when he's decided what kind of message this is.
+const ROUTE_SAID = { math: 'calculating…', live: 'reading the round…', valorant: 'thinking like a coach…',
+  code: 'looking at the code…', roblox: 'looking at the code…' };
+window.onRoute = (kind, think) => {
+  if (!stream) return;
+  const said = think ? 'thinking it through…' : ROUTE_SAID[kind];
+  if (said && pet.state !== 'talking') setState('thinking', said);
 };
 
 // ---------- sending ----------
@@ -247,7 +274,7 @@ async function send(text) {
 
   b.innerHTML = format(res.reply);
   if (res.stopped) row.insertAdjacentHTML('beforeend', '<div class="stopped">stopped</div>');
-  else if (res.secs != null) row.insertAdjacentHTML('beforeend', `<div class="meta">${res.secs}s${fast ? ' · ⚡ fast' : ''}</div>`);
+  else if (res.secs != null) row.insertAdjacentHTML('beforeend', `<div class="meta">${res.secs}s${mode !== 'auto' ? ` · ${MODE_LABEL[mode]}` : ''}</div>`);
   if (chatTitle === 'New chat' || !allChats.some((c) => c.id === chatId)) {
     setTitle(res.title);
     refreshChatList();
@@ -1056,19 +1083,32 @@ function showVision(on) {
   $('#share-voice').hidden = !on;
 }
 
-function showFast(on, s = {}) {
-  fast = !!on;
-  $('#fast-btn').classList.toggle('on', fast);
+const MODE_LABEL = { auto: '✨ Auto', fast: '⚡ Fast', think: '🧠 Think', math: '🧮 Math', valorant: '🎯 Valorant', code: '💻 Code' };
+const MODE_SAID = { auto: 'auto mode: I pick what fits ✨', fast: 'quick replies on ⚡', think: 'think mode: I\'ll work it out properly 🧠',
+  math: 'math mode 🧮 exact answers only', valorant: 'coach mode 🎯 give me the round', code: 'code mode 💻 paste it in' };
+let mode = 'auto';
+
+function showMode(m, s = {}) {
+  mode = MODE_LABEL[m] ? m : 'auto';
+  fast = mode === 'fast';
+  $('#mode-btn').textContent = MODE_LABEL[mode];
+  $('#mode-btn').classList.toggle('on', mode !== 'auto');
   const info = s.model ? `\nbrain: ${s.model}${s.hardware ? ` on ${s.hardware}` : ''}` : '';
-  $('#fast-btn').title = (fast ? 'Quick replies are on: short answers that finish fast. Click for full replies.'
-    : 'Quick replies: shorter answers that finish faster (same brain, nothing to download)') + info;
+  $('#mode-btn').title = `How Flip answers: ${MODE_LABEL[mode]}${info}`;
+  for (const b of document.querySelectorAll('#mode-menu button')) b.classList.toggle('current', b.dataset.mode === mode);
 }
-$('#fast-btn').addEventListener('click', async () => {
-  if (busy || voiceOn) return;
-  const s = await api.set_fast(!fast);
-  showFast(s.fast, s);
-  if (calm()) setState('idle', fast ? 'quick replies on ⚡' : 'full replies on 🧠');
-});
+function showFast(on, s = {}) { showMode(s.mode || (on ? 'fast' : 'auto'), s); }
+
+$('#mode-btn').addEventListener('click', (e) => { e.stopPropagation(); $('#mode-menu').hidden = !$('#mode-menu').hidden; });
+document.addEventListener('click', (e) => { if (!e.target.closest('.mode-wrap')) $('#mode-menu').hidden = true; });
+async function setMode(m) {
+  $('#mode-menu').hidden = true;
+  if (voiceOn && m !== mode) {}  // fine mid-call: applies from the next thing you say
+  const s = await api.set_mode(m);
+  showMode(s.mode, s);
+  if (calm()) setState('idle', MODE_SAID[mode]);
+}
+for (const b of document.querySelectorAll('#mode-menu button')) b.addEventListener('click', () => setMode(b.dataset.mode));
 
 // ---------- desktop pet ----------
 
@@ -1086,14 +1126,14 @@ $('#desk-btn').addEventListener('click', async () => {
 async function watchBrain() {
   let s;
   try { s = await api.brain_status(); } catch (e) { setTimeout(watchBrain, 1000); return; }
-  if ('fast' in s) showFast(s.fast, s);
+  if ('mode' in s || 'fast' in s) showFast(s.fast, s);
   showVision(!!s.vision);
   if (s.state === 'ready') {
     if (body.classList.contains('setup')) {
       body.classList.remove('setup', 'setup-error');
       const cpu = /^CPU/.test(s.hardware || '');
       flash('happy', 2500, cpu ? 'brain loaded, but only on your processor 🐢 replies will be slower'
-        : fast ? 'fast mode on ⚡ let\'s go' : 'brain loaded, let\'s cook 🧠🔥');
+        : 'brain loaded, let\'s cook 🧠🔥');
     }
     return;
   }

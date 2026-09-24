@@ -7,7 +7,11 @@ import logging
 import threading
 import time
 
+import knowledge
+import mathtool
+import router
 import store
+import usage
 
 log = logging.getLogger("flip")
 
@@ -269,8 +273,11 @@ class Brain:
         self.settings = settings
         self.personality = personality.replace("{name}", self.name)
         self.skills = [parse_skill(s) for s in skills]
+        self.knowledge = knowledge.load()
+        self.last_route = None
         self.last_stats = {}
         self.on_tool = lambda name: None
+        self.on_route = lambda way: None
         self.roblox = RobloxLink(settings["roblox_command"]) if settings.get("roblox_studio") else None
 
         self.backend = LocalBackend(local_url)
@@ -297,15 +304,14 @@ class Brain:
             parts.append("You don't remember anything about the user yet. Use the remember tool when you learn about them.")
         # Extra know-how (like Valorant) only goes in when the chat is about it: every word here has to
         # be read before he can answer, so a shorter text means a faster reply.
-        topic = topic.lower()
-        parts.extend(sk["text"] for sk in self.skills if any(k in topic for k in sk["keywords"]))
+        parts.extend(sk["text"] for sk in self.skills if sk["keywords"] == [""])
         # Only the date (not the time): keeping this text the same between messages lets the
         # brain reuse its work on the chat so far instead of re-reading everything each time.
         parts.append(time.strftime("Today is %A, %B %d %Y."))
         return "\n\n".join(parts)
 
     def _tools(self, topic=""):
-        tools = list(MEMORY_TOOLS)
+        tools = list(MEMORY_TOOLS) + [mathtool.TOOL]  # always there, so the brain's cached work stays valid
         # Roblox Studio's tools are big, so they only come along when the chat is about Roblox.
         if self.roblox and self.roblox.status == "connected" and any(k in topic.lower() for k in ROBLOX_WORDS):
             tools += self.roblox.tools
@@ -316,9 +322,9 @@ class Brain:
         Drops the oldest messages first, then Roblox tools. Returns (history, tools)."""
         budget = int(self.settings.get("context", 8192)) - REPLY_ROOM
         fixed = estimate_tokens(system) + estimate_tokens(json.dumps(tools))
-        if fixed > budget * 0.7 and len(tools) > len(MEMORY_TOOLS):
+        if fixed > budget * 0.7 and len(tools) > len(MEMORY_TOOLS) + 1:
             log.warning("Tools too big (%d tokens), leaving Roblox tools out", fixed)
-            tools = list(MEMORY_TOOLS)
+            tools = list(MEMORY_TOOLS) + [mathtool.TOOL]
             fixed = estimate_tokens(system) + estimate_tokens(json.dumps(tools))
         kept = list(history)
         while len(kept) > 1 and fixed + sum(estimate_tokens(m["content"]) for m in kept) > budget:
@@ -333,12 +339,17 @@ class Brain:
 
     def _run_tool(self, name, args):
         self.on_tool(name)
+        usage.record(tool=name)
         try:
             if name == "remember":
                 mem = store.remember(args.get("fact", ""))
                 return f"saved as [{mem['id']}]" if mem else "already remembered (or empty)"
             if name == "forget":
                 return "forgotten" if store.forget(str(args.get("id", ""))) else "no memory with that id"
+            if name == "math":
+                text = mathtool.run(args)
+                log.info("math %s -> %s", args, text)
+                return text
             text = self.roblox.call(name, args) if self.roblox else "ERROR: unknown tool"
         except Exception as e:
             text = f"ERROR: {e}"
@@ -349,15 +360,35 @@ class Brain:
     def chat(self, chat_id, text, voice=False, on_text=None, stop=None, image=None, image_label="", on_reset=None):
         chat = store.load_chat(chat_id) or store.new_chat(chat_id)
         history = [{"role": m["role"], "content": m["content"]} for m in chat["messages"][-MAX_HISTORY:]]
-        topic = " ".join(str(m["content"]) for m in history[-6:]) + " " + text
+        recent = " ".join(str(m["content"]) for m in history[-4:])
+        topic = recent + " " + text
+        mode = self.settings.get("mode") or ("fast" if self.settings.get("fast_mode") else "auto")
+        way = router.route(text, mode, recent, voice)
+        self.last_route = way
+        log.info("%s", way)
+        self.on_route(way)
         prompt = text
-        fast = bool(self.settings.get("fast_mode"))
+        notes = []
+        if way.kind in ("valorant", "live"):
+            chat["match"] = router.update_match(chat.get("match"), text)
+            if way.kind == "live":
+                notes.append(router.describe_match(chat["match"]))
+        tags = set(way.tags)
+        chosen = knowledge.pick(self.knowledge, text + " " + (recent[-600:] if way.kind != "chat" else ""), tags,
+                                budget=1800 if way.kind == "live" else 5000) if tags or way.kind != "chat" else []
+        low = (text + " " + recent[-300:]).lower()
+        extra = [sk["text"] for sk in self.skills if sk["keywords"] != [""] and any(k in low for k in sk["keywords"])]
+        if chosen or extra:
+            notes.insert(0, "(Your notes for this — use them, don't quote them:\n" + "\n\n".join(
+                ([knowledge.render(chosen)] if chosen else []) + extra) + ")")
+        if way.note:
+            notes.append(way.note)
         if voice:
-            prompt += ("\n\n(We're in a live voice call and this was transcribed from my voice, so ignore missing "
-                       "punctuation. Talk back like on a call: 1-2 short spoken sentences, plain words only, "
-                       "no emojis, lists, code or markdown unless I ask.)")
-        elif fast:
-            prompt += "\n\n(Quick mode: keep it short, 1-2 sentences unless I ask for more.)"
+            notes.append("(We're in a live voice call and this was transcribed from my voice, so ignore missing "
+                         "punctuation. Talk back like on a call: short spoken sentences, plain words only, "
+                         "no emojis, lists, code, LaTeX or markdown unless I ask.)")
+        if notes:
+            prompt += "\n\n" + "\n\n".join(notes)
         earlier = [m["content"] for m in history if m["role"] == "assistant"][-4:]
         if earlier:
             # small brains love to paste their last reply again; a nudge right next to the message helps most
@@ -371,7 +402,7 @@ class Brain:
                                                         {"type": "image_url", "image_url": {"url": image}}]})
         else:
             history.append({"role": "user", "content": prompt})
-        limit = 160 if voice else 300 if fast else None
+        limit = way.max_tokens
         started, first = time.time(), [None]
 
         def stream_text(piece):
@@ -384,13 +415,13 @@ class Brain:
         history, tools = self._fit(system, history, self._tools(topic))
         try:
             reply, stopped = self.backend.answer(system, history, tools, self._run_tool,
-                                                 stream_text, stop, max_tokens=limit)
+                                                 stream_text, stop, max_tokens=limit, temperature=way.temperature)
         except Exception as e:
             if "exceed_context_size" not in str(e) and "context" not in str(e).lower():
                 raise
             log.warning("Still too long for the brain, retrying short: %s", e)  # guesses were off; go minimal
             reply, stopped = self.backend.answer(self._system(), history[-2:], list(MEMORY_TOOLS), self._run_tool,
-                                                 stream_text, stop, max_tokens=limit)
+                                                 stream_text, stop, max_tokens=limit, temperature=way.temperature)
         if not stopped and reply and _repeats(reply, earlier):
             # Still said the same thing as before: throw it away and try again, told plainly this time.
             log.info("Reply repeated an earlier one, retrying: %s", reply[:80])
@@ -409,7 +440,10 @@ class Brain:
                                                  max_tokens=limit, temperature=1.0)
         done = time.time()
         self.last_stats = {"secs": round(done - started, 1),
-                           "first": round((first[0] or done) - started, 1)}
+                           "first": round((first[0] or done) - started, 1), "kind": way.kind}
+        usage.record(chat=1, think=int(way.think), kind=way.kind,
+                     read_tokens=sum(estimate_tokens(m["content"]) for m in history) + estimate_tokens(system),
+                     written_tokens=estimate_tokens(reply or ""))
         log.info("Reply took %.1fs (first words after %.1fs)", done - started, (first[0] or done) - started)
         if not reply:
             reply = "(stopped)" if stopped else "💀 my brain blanked, say that again?"

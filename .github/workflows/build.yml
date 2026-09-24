@@ -35,7 +35,7 @@ jobs:
           "1.${{ github.run_number }}" | Out-File -Encoding ascii -NoNewline version.txt
           $pyiArgs = @(
             "--noconfirm", "--windowed", "--name", "Flip", "--icon", "flip.ico",
-            "--add-data", "ui;ui", "--add-data", "skills;skills", "--add-data", "version.txt;.", "--add-data", "personality.txt;.", "--add-data", "flip.ico;.",
+            "--add-data", "ui;ui", "--add-data", "knowledge;knowledge", "--add-data", "version.txt;.", "--add-data", "personality.txt;.", "--add-data", "flip.ico;.",
             "--collect-all", "faster_whisper", "--collect-all", "ctranslate2", "--collect-all", "onnxruntime",
             "--collect-all", "webview", "--collect-data", "edge_tts", "--hidden-import", "mcp.client.stdio",
             "--collect-all", "kokoro_onnx", "--collect-all", "espeakng_loader", "--collect-all", "phonemizer",
@@ -96,10 +96,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             $tail = (Get-Content e2e.txt -Tail 15) -join ' // '
             Write-Output "::error title=Real brain test failed::$tail"
+            $evals = (Select-String -Path e2e.txt -Pattern "^EVAL|^SCORE" | ForEach-Object { $_.Line }) -join " // "
+            if ($evals) { Write-Output "::error title=Evals::$evals" }
             if (Test-Path "$env:TEMP") { Get-ChildItem $env:TEMP -Filter brain.log -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $b = (Get-Content $_.FullName -Tail 15) -join ' // '; Write-Output "::error title=brain.log::$b" } }
             exit 1
           }
-          Select-String -Path e2e.txt -Pattern "^REPLY|^hardware:|^E2E" | ForEach-Object { Write-Output "::notice title=Brain speed::$($_.Line)" }
+          Select-String -Path e2e.txt -Pattern "^SCORE|^hardware:|^E2E" | ForEach-Object { Write-Output "::notice title=Brain::$($_.Line)" }
+          $fails = (Select-String -Path e2e.txt -Pattern "^EVAL .* FAIL" | ForEach-Object { $_.Line }) -join " // "
+          if ($fails) { Write-Output "::warning title=Eval misses::$fails" }
           Get-ChildItem $env:TEMP -Filter brain.log -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Select-String -Path $_.FullName -Pattern "prompt eval time|cache" | Select-Object -Last 6 | ForEach-Object { Write-Output "::notice title=brain.log::$($_.Line)" } }
 
       - uses: actions/upload-artifact@v4

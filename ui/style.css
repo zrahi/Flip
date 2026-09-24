@@ -52,6 +52,21 @@ svg { display: block; }
 }
 .chip:hover { color: var(--text); border-color: var(--muted); }
 .chip.on { background: #ffe45c; border-color: #ffe45c; color: #2b2400; }
+.mode-wrap { position: relative; flex: none; }
+#mode-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: 250px; padding: 6px;
+  background: var(--panel, #1f1c2c); border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .45);
+}
+#mode-menu button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; text-align: left;
+  padding: 8px 10px; border: 0; border-radius: 10px; background: none; color: var(--text); cursor: pointer; font-size: 13px;
+}
+#mode-menu button span { color: var(--muted); font-size: 12px; }
+#mode-menu button:hover, #mode-menu button.current { background: rgba(255, 255, 255, .06); }
+#mode-menu button.current b::after { content: " ✓"; color: var(--accent); }
+.b .katex { font-size: 1.05em; }
+.b .katex-display { margin: 8px 0; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
 
 /* ---------- sidebar ---------- */
 #sidebar {

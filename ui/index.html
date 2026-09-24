@@ -5,6 +5,7 @@
 <title>Flip</title>
 <link rel="stylesheet" href="pet.css">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
 </head>
 <body>
 <div id="app">
@@ -57,7 +58,17 @@
       <span id="roblox-dot" class="dot" title="Roblox Studio: starting"></span>
       <div class="actions">
         <button id="update-btn" class="chip update" hidden title="A new version of Flip is out">⬆ Update</button>
-        <button id="fast-btn" class="chip" title="Fast mode: a smaller brain that answers way quicker">⚡ Fast</button>
+        <div class="mode-wrap">
+          <button id="mode-btn" class="chip" title="How Flip answers">✨ Auto</button>
+          <div id="mode-menu" hidden>
+            <button data-mode="auto"><b>✨ Auto</b><span>Flip picks the right help for each message</span></button>
+            <button data-mode="fast"><b>⚡ Fast</b><span>short, quick answers</span></button>
+            <button data-mode="think"><b>🧠 Think</b><span>works it out carefully first (slower)</span></button>
+            <button data-mode="math"><b>🧮 Math</b><span>exact calculator, clean steps and formulas</span></button>
+            <button data-mode="valorant"><b>🎯 Valorant</b><span>coach mode · live callouts mid-match</span></button>
+            <button data-mode="code"><b>💻 Code</b><span>precise code help, Roblox/Luau too</span></button>
+          </div>
+        </div>
         <button id="desk-btn" class="icon-btn ghost" title="Show pet on desktop">
           <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/><circle cx="15.5" cy="10" r="2.2" class="fill"/></svg>
         </button>
@@ -275,6 +286,7 @@
     </div>
   </section>
 </div>
+<script src="vendor/katex/katex.min.js"></script>
 <script src="pet.js"></script>
 <script src="app.js"></script>
 </body>

@@ -203,7 +203,8 @@ class Engine:
 
     def _set(self, state, title, detail="", progress=None):
         self.status = {"state": state, "title": title, "detail": detail, "progress": progress,
-                       "model": self.model_name, "fast": bool(self._s.get("fast_mode")), "vision": bool(self.eyes),
+                       "model": self.model_name, "fast": bool(self._s.get("fast_mode")),
+                       "mode": self._s.get("mode") or ("fast" if self._s.get("fast_mode") else "auto"), "vision": bool(self.eyes),
                        "hardware": self.hardware() if state == "ready" and not self._s.get("llm_url") else ""}
         if state == "ready":
             log.info("Brain ready: %s on %s", self.model_name, self.status["hardware"] or "your own server")

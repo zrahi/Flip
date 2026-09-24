@@ -15,6 +15,8 @@ To remove him: Windows Settings → Apps → Installed apps → Flip → Uninsta
 ## What he can do
 
 - **Chat** like ChatGPT or Claude. His replies type out word by word, and **■ stop** cuts him off. ⚡ **Fast** gives short, quick replies.
+- **Modes** (button at the top): ✨ Auto picks for you, ⚡ Fast, 🧠 Think (works it out carefully first), 🧮 Math (exact calculator + clean formulas), 🎯 Valorant (coach mode; short live callouts when you feed him the round: "Lotus, Phoenix, attack, 3.4k" → "2 A, one heaven"), 💻 Code (incl. Roblox/Luau).
+- **Know-how that stays current**: Flip's Valorant and Roblox notes live in `knowledge/*.md`. Drop your own `.md` files (like the latest patch notes, same `## Title` / `KEYS:` format) into his folder's `knowledge` folder and he uses them.
 - **Voice chat**: tap the voice button next to the text box and just talk, like a phone call. He talks while he types, and you can talk over him to cut him off (or tap him). ✕ hangs up.
 - **Sidebar**: new chat, search, 📌 pinned chats, and rename or delete chats. Click the chat name at the top to rename it.
 - **Accounts + profiles**: log in with a username and password, then pick who's chatting. Every profile has its own chats and memory, plus an optional PIN.

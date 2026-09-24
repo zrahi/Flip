@@ -23,14 +23,14 @@ def selftest(out_path):
     """Used by the build: checks that everything Flip needs made it into the .exe."""
     lines = []
     for mod in ("webview", "clr", "openai", "mcp", "mcp.client.stdio", "faster_whisper", "ctranslate2", "onnxruntime", "numpy",
-                "sounddevice", "edge_tts", "kokoro_onnx", "pystray", "PIL", "brain", "engine", "voice", "store", "storage", "updater", "screen", "autotest"):
+                "sounddevice", "edge_tts", "kokoro_onnx", "pystray", "PIL", "brain", "engine", "voice", "store", "storage", "updater", "screen", "autotest", "router", "knowledge", "mathtool", "usage", "sympy"):
         try:
             __import__(mod)
             lines.append(f"ok {mod}")
         except BaseException as e:  # sounddevice raises OSError when there's no audio device, that's fine
             lines.append(f"{'ok' if mod == 'sounddevice' and isinstance(e, OSError) else 'FAIL'} {mod}: {e!r}")
     for f in ("ui/index.html", "ui/pet.html", "ui/app.js", "ui/desk.js", "ui/pet.js", "ui/pet.css",
-              "ui/style.css", "personality.txt", "flip.ico", "skills/valorant.txt", "version.txt"):
+              "ui/style.css", "personality.txt", "flip.ico", "knowledge/valorant.md", "knowledge/roblox.md", "ui/vendor/katex/katex.min.js", "version.txt"):
         lines.append(f"{'ok' if (RES / f).exists() else 'FAIL'} file {f}")
     import faster_whisper
     assets = os.path.join(os.path.dirname(faster_whisper.__file__), "assets")
@@ -56,6 +56,17 @@ def selftest(out_path):
         lines.append("ok whisper runs")
     except BaseException as e:
         lines.append(f"FAIL whisper runs: {e!r}")
+    try:  # the calculator (SymPy) really works in the .exe
+        import mathtool
+        got = mathtool.run({"expression": "x^2-5x+6=0"})
+        lines.append(f"{'ok' if got == 'x = 2 or x = 3' else 'FAIL'} math tool: {got}")
+    except BaseException as e:
+        lines.append(f"FAIL math tool: {e!r}")
+    try:
+        import knowledge
+        lines.append(f"{'ok' if len(knowledge.load()) > 20 else 'FAIL'} knowledge sections")
+    except BaseException as e:
+        lines.append(f"FAIL knowledge: {e!r}")
     lines.append("DONE")
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
@@ -205,6 +216,7 @@ class Api:
         self._engine = Engine(settings)
         self._brain = Brain(settings, personality_file().read_text(encoding="utf-8"), self._engine.url, load_skills())
         self._brain.on_tool = self._on_tool
+        self._brain.on_route = self._on_route
         self._engine.on_ready = self._warm_up
         self._voice = Voice(settings)
         self._updater = Updater()
@@ -307,7 +319,15 @@ class Api:
         return self._engine.status
 
     def set_fast(self, on):
-        self._engine.set_fast(on)
+        return self.set_mode("fast" if on else "auto")
+
+    def set_mode(self, mode):
+        import router
+
+        mode = mode if mode in router.MODES else "auto"
+        self._settings["mode"] = mode
+        self._engine.set_fast(mode == "fast")
+        self._engine.status = dict(self._engine.status, mode=mode)
         save_settings(self._settings)
         return self._engine.status
 
@@ -625,6 +645,10 @@ class Api:
             self._main.restore()
 
     # ---------- plumbing ----------
+
+    def _on_route(self, way):
+        if self._main:
+            self._main.evaluate_js(f"onRoute({json.dumps(way.kind)}, {json.dumps(way.think)})")
 
     def _on_tool(self, name):
         if self._main:

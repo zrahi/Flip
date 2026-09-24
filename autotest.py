@@ -212,15 +212,40 @@ def run(api):
     step("voice call: talking over him stops him", talk_over_him)
     call("endVoice()")
 
-    def fast_mode():
-        call("document.querySelector('#fast-btn').click()")
-        wait_for("fast === true", 20)
-        wait_for("!document.body.classList.contains('setup') && fast === true", 900, "fast mode to load")
-        reply = chat("say gg in one word")
-        call("document.querySelector('#fast-btn').click()")
-        wait_for("fast === false && !document.body.classList.contains('setup')", 900, "smart mode to come back")
-        return reply
-    step("fast mode", fast_mode)
+    def modes():
+        call("document.querySelector('#mode-btn').click()")
+        wait_for("!document.querySelector('#mode-menu').hidden", 10, "the mode menu")
+        call("document.querySelector('#mode-menu [data-mode=\\'fast\\']').click()")
+        wait_for("mode === 'fast' && fast === true", 20, "fast mode")
+        quick = chat("say gg in one word")
+        call("setMode('math')")
+        wait_for("mode === 'math'", 20, "math mode")
+        tools = []
+        api._brain.on_tool = lambda name: (tools.append(name), api._on_tool(name))
+        answer = chat("what's 59382 × 912?")
+        api._brain.on_tool = api._on_tool
+        call("setMode('auto')")
+        wait_for("mode === 'auto'", 20)
+        if "54156384" not in re.sub(r"[\s,]", "", answer):
+            raise Failed(f"wrong math: {answer!r}")
+        if "math" not in tools:
+            raise Failed(f"didn't use the calculator: {answer!r}")
+        return f"fast: {quick!r} | math: {answer[:80]!r} (calculator used)"
+    step("modes: fast + math (calculator)", modes)
+
+    def live_coach():
+        call("newChat()")
+        wait_for("!document.body.classList.contains('chatting')", 10)
+        chat("Lotus, Phoenix, attack, 3.4k credits")
+        reply = chat("2 A, one heaven")
+        way = api._brain.last_route
+        if way.kind != "live":
+            raise Failed(f"not treated as a live callout: {way}")
+        n = len(reply.split())
+        if n > 30:
+            raise Failed(f"too long for a live callout ({n} words): {reply!r}")
+        return f"{reply!r} ({n} words)"
+    step("valorant: live callouts", live_coach)
 
     def pet():
         api.show_pet()

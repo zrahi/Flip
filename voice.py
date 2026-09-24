@@ -34,9 +34,32 @@ EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿⬀-⯿️‍]")
 NOISE_WORDS = {"", "you", "thank you", "thank you.", "thanks for watching!", "bye.", ".", "uh", "um", "hmm"}
 
 
+def say_math(tex):
+    """LaTeX → words, roughly how you'd read it out."""
+    t = tex
+    for _ in range(3):
+        t = re.sub(r"\\[dt]?frac\{([^{}]*)\}\{([^{}]*)\}", r" \1 over \2 ", t)
+        t = re.sub(r"\\sqrt\{([^{}]*)\}", r" the square root of \1 ", t)
+    words = {r"\cdot": " times ", r"\times": " times ", r"\div": " divided by ", r"\pm": " plus or minus ",
+             r"\le": " is at most ", r"\ge": " is at least ", r"\neq": " is not ", r"\approx": " is about ",
+             r"\pi": " pi ", r"\infty": " infinity ", r"\theta": " theta ", r"\sin": " sine ", r"\cos": " cos ",
+             r"\tan": " tan ", r"\log": " log ", r"\ln": " natural log ", "^2": " squared ", "^3": " cubed "}
+    for k, v in words.items():
+        t = t.replace(k, v)
+    t = re.sub(r"\^\{?([^{}\s]+)\}?", r" to the power of \1 ", t)
+    t = re.sub(r"\\[a-zA-Z]+", " ", t).replace("{", " ").replace("}", " ")
+    t = t.replace("=", " equals ").replace("<", " is less than ").replace(">", " is more than ")
+    t = re.sub(r"(?<=\w)\s*-\s*(?=\w)", " minus ", t).replace("+", " plus ")
+    return re.sub(r"\s+", " ", t).strip()
+
+
+MATH_TEX = re.compile(r"\$\$(.+?)\$\$|\\\[(.+?)\\\]|\\\((.+?)\\\)|\$(?![\s$])([^$\n]+?)(?<!\s)\$(?!\d)", re.S)
+
+
 def speakable(text):
     """Turn a chat reply into something that sounds good out loud."""
     text = CODE_BLOCK.sub(" I dropped the code in the chat. ", text)
+    text = MATH_TEX.sub(lambda m: " " + say_math(next(g for g in m.groups() if g)) + " ", text)
     text = URL.sub(" the link ", text)
     text = EMOJI.sub("", text)
     text = re.sub(r"[`*_#>|]", "", text)

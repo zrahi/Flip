@@ -115,16 +115,59 @@ def test_speakable():
     assert s == "yo bet: I dropped the code in the chat. see the link fr"
 
 
-def test_skills_only_when_relevant():
-    from brain import Brain, parse_skill
+def test_skill_parsing():
+    from brain import parse_skill
 
     sk = parse_skill("KEYWORDS: valorant, jett\nVALORANT TIPS")
     assert sk == {"keywords": ["valorant", "jett"], "text": "VALORANT TIPS"}
-    b = Brain({"name": "Flip", "roblox_studio": False}, "You are {name}.", "http://127.0.0.1:9/v1",
-              ["KEYWORDS: valorant, jett\nVALORANT TIPS", "ALWAYS ON"])
-    assert "VALORANT TIPS" not in b._system("make me a door script")
-    assert "VALORANT TIPS" in b._system("how do I play Jett")
-    assert "ALWAYS ON" in b._system("anything")
+
+
+def test_router_picks_the_right_help():
+    import router
+
+    r = router.route
+    assert r("What's 59382 × 912?").kind == "math" and r("What's 59382 × 912?").math_tool
+    assert r("solve 2x+3=11").kind == "math"
+    for live in ("Lotus, Phoenix, attack, 3.4k credits", "2 A, one heaven", "we planted B", "last guy flank",
+                 "enemy keeps pushing mid", "3v1 they have op"):
+        way = r(live)
+        assert way.kind == "live" and way.max_tokens <= 80, (live, way)
+    for coach in ("how do I play Sova on Ascent?", "whats a good lineup for viper on bind", "should I buy or save with 2400"):
+        assert r(coach).kind == "valorant", coach
+    assert r("fix this roblox script, my datastore doesnt save").kind == "roblox"
+    assert r("explain this python code").kind == "code"
+    assert r("hi how are you").kind == "chat" and r("we won 13-5").kind == "chat"
+    assert r("make me a fortnite hack").kind == "refuse" and r("write me an aimbot for valorant").kind == "refuse"
+    assert r("how do I stop exploiters in my roblox game").kind == "roblox"
+    assert r("hi", mode="think").think and r("hi", mode="fast").max_tokens == 300
+    assert r("gg", voice=True).max_tokens <= 160
+
+    s = {}
+    for msg in ("Lotus, Phoenix, attack, 3.4k credits", "2 A, one heaven", "we planted B", "its 2v3 now"):
+        s = router.update_match(s, msg)
+    assert s == {"map": "Lotus", "agent": "Phoenix", "side": "attack", "credits": 3400, "enemies": "2 A, 1 heaven",
+                 "spike": "planted B", "players": "2v3"}
+    assert router.update_match(s, "new map, ascent now")["map"] == "Ascent" and "spike" not in router.update_match(s, "ascent")
+
+
+def test_knowledge_is_picked_by_topic():
+    import knowledge
+
+    kb = knowledge.load()
+    titles = lambda text, tags=(): [x["title"] for x in knowledge.pick(kb, text, tags)]
+    got = titles("how do I play sova on ascent", {"valorant"})
+    assert "Agents: Initiators" in got and "Ascent" in got and "Valorant coaching basics" in got
+    assert "Hunter's Fury" in knowledge.render(knowledge.pick(kb, "sova ult", {"valorant"}))
+    assert "Live match coaching style" in titles("2 A one heaven", {"valorant", "live"})
+    assert "Client/server security" in titles("my remoteevent gives coins", {"roblox"})
+    assert titles("hello there") == []
+    assert sum(len(x["text"]) for x in knowledge.pick(kb, " ".join(router_words()), {"valorant"}, budget=5000)) <= 5000
+
+
+def router_words():
+    import router
+
+    return router.AGENTS + router.MAPS + ["eco", "retake", "comp"]
 
 
 def test_everything_fits_in_the_brain():
@@ -136,7 +179,7 @@ def test_everything_fits_in_the_brain():
     history = [{"role": "user" if i % 2 == 0 else "assistant", "content": "blah " * 400} for i in range(30)]
     history.append({"role": "user", "content": "a"})
     kept, tools = b._fit("system text", history, huge_tools)
-    assert tools == MEMORY_TOOLS                      # the giant tool list got dropped
+    assert [t["name"] for t in tools] == ["remember", "forget", "math"]  # the giant tool list got dropped
     assert kept[-1]["content"] == "a" and kept[0]["role"] == "user"
     total = estimate_tokens("system text") + estimate_tokens(json.dumps(tools)) + sum(estimate_tokens(m["content"]) for m in kept)
     assert total <= 8192 - REPLY_ROOM
@@ -273,6 +316,9 @@ class FakeModel(BaseHTTPRequestHandler):
             self._chunk({"tool_calls": [{"index": 0, "function": {"arguments": json.dumps({"fact": "name is Marru"})}}]})
             self._chunk({"tool_calls": [{"index": 1, "id": "c2", "type": "function",
                                          "function": {"name": "run_code", "arguments": json.dumps({"command": "print(1)"})}}]})
+        elif last["role"] == "user" and isinstance(last["content"], str) and "calc please" in last["content"]:
+            self._chunk({"role": "assistant", "tool_calls": [{"index": 0, "id": "m1", "type": "function", "function": {
+                "name": "math", "arguments": json.dumps({"expression": "59382*912"})}}]})
         elif isinstance(last["content"], str) and "repeat test" in last["content"]:
             # a lazy brain: pastes its previous reply, unless told off
             if "first try repeated" in last["content"]:
@@ -321,6 +367,20 @@ def test_brain_memory_tools_and_streaming():
     b.chat("c0ffee", "again")  # the memory now shows up in what the AI is told
     system = FakeModel.last["messages"][0]["content"]
     assert "name is Marru" in system and "You're talking to Marru" in system and "VALORANT know-how" in system
+    assert "math" in [t["function"]["name"] for t in FakeModel.last["tools"]]
+
+    used.clear()
+    reply, _, _ = b.chat("c0ffee", "calc please: what's 59382 × 912?")
+    assert used == ["math"] and "54156384" in reply  # the calculator's exact answer came back to him
+    assert "math tool" in FakeModel.last["messages"][-3]["content"]  # he was told to use it
+
+    b.chat("c0ffee", "how do I play Sova on Ascent?")  # Valorant know-how rides along with the message…
+    assert "Hunter's Fury" in FakeModel.last["messages"][-1]["content"]
+    assert FakeModel.last["messages"][0]["content"] == system  # …so his fixed instructions stay the same (fast)
+    b.chat("c0ffee", "Lotus, Phoenix, attack, 3.4k credits")
+    b.chat("c0ffee", "2 A, one heaven")
+    last = FakeModel.last["messages"][-1]["content"]
+    assert "Live match" in last and "map: Lotus" in last and "credits: 3400" in last and FakeModel.last["max_tokens"] <= 80
     assert FakeModel.last["model"] == "qwen"
     assert FakeModel.last["chat_template_kwargs"] == {"enable_thinking": False}  # no slow hidden thinking
     assert b.last_stats["secs"] >= 0
@@ -383,3 +443,26 @@ def test_screen_sharing_sources_and_capture():
     print("windows:", [w["title"] for w in windows][:10])
     for w in windows[:3]:
         assert screen.capture(w["id"]) is not None, w
+
+
+def test_math_tool_is_exact_and_safe():
+    import mathtool
+
+    calc = lambda e, **k: mathtool.run(dict(expression=e, **k))
+    assert calc("59382*912") == "54156384"
+    assert calc("3/4 + 5/6").startswith("19/12")
+    assert calc("15% of 80") == "12"
+    assert calc("2x+3=11") == "x = 4"
+    assert calc("x+y=5; x-y=1") == "x = 3, y = 2"
+    assert calc("x^2-5x+6=0") == "x = 2 or x = 3"
+    assert calc("2x - 4 > 6") == "x > 5"
+    assert calc("sin(30 deg)").startswith("1/2")
+    assert calc("x^3", op="derivative") == "3*x^2"
+    assert calc("x^2", op="integral", lower="0", upper="3") == "9"
+    assert calc("binomial(10,3)*0.5^10").startswith("15/128")
+    assert calc("pstdev(2,4,4,4,5,5,7,9)") == "2"
+    assert calc("360", op="factor") == "2^3 · 3^2 · 5"
+    # it only does math: no Python, no giant numbers that freeze the PC
+    assert calc('__import__("os").system("calc")').startswith("ERROR")
+    assert calc("().__class__").startswith("ERROR")
+    assert calc("9**9**9").startswith("ERROR")
