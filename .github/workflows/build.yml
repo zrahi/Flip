@@ -22,13 +22,25 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller pytest
+          pip install -r requirements.txt pyinstaller pytest pytest-github-actions-annotate-failures
 
       - name: Tests
-        run: python -m pytest tests -v
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -m pytest tests -v -p no:cacheprovider
 
       - name: Real brain test (downloads llama.cpp + a tiny model and chats)
-        run: python tests/e2e_brain.py
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          python tests/e2e_brain.py 2>&1 | Tee-Object -FilePath e2e.txt
+          if ($LASTEXITCODE -ne 0) {
+            $tail = (Get-Content e2e.txt -Tail 15) -join ' // '
+            Write-Output "::error title=Real brain test failed::$tail"
+            if (Test-Path "$env:TEMP") { Get-ChildItem $env:TEMP -Filter brain.log -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $b = (Get-Content $_.FullName -Tail 15) -join ' // '; Write-Output "::error title=brain.log::$b" } }
+            exit 1
+          }
 
       - name: Build Flip.exe
         run: >
@@ -47,7 +59,10 @@ jobs:
           $p = Start-Process -FilePath dist\Flip.exe -ArgumentList "--selftest", $out -Wait -PassThru
           Get-Content $out
           $text = Get-Content $out -Raw
-          if ($text -notmatch "DONE" -or $text -match "FAIL") { throw "selftest failed" }
+          if ($text -notmatch "DONE" -or $text -match "FAIL") {
+            Write-Output "::error title=Flip.exe selftest failed::$(($text -split "`n" | Where-Object { $_ -match 'FAIL' }) -join ' // ')"
+            throw "selftest failed"
+          }
           "Flip.exe size: {0:N0} MB" -f ((Get-Item dist\Flip.exe).Length / 1MB)
 
       - uses: actions/upload-artifact@v4

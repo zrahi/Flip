@@ -6,6 +6,7 @@ smartest model the PC's graphics card can handle. After that it just starts it.
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import threading
@@ -70,7 +71,11 @@ def pick_model(vram_gb):
 
 
 def _get_json(url):
-    with urllib.request.urlopen(urllib.request.Request(url, headers=HEADERS), timeout=30) as r:
+    headers = dict(HEADERS)
+    token = os.environ.get("GITHUB_TOKEN")
+    if token and url.startswith("https://api.github.com/"):
+        headers["Authorization"] = f"Bearer {token}"  # only set on the build server, avoids rate limits
+    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as r:
         return json.load(r)
 
 
