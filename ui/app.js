@@ -677,6 +677,7 @@ async function openSettings() {
   $('#set-note').textContent = '';
   $('#pw-note').textContent = '';
   $('#clean-note').textContent = '';
+  $('#update-status').textContent = update ? `version ${update.current}` : '';
   api.storage_report().then(renderStorage);
   const b = await api.brain_status();
   $('#brain-info').textContent = b.model
@@ -1050,11 +1051,25 @@ $('#share-stop').addEventListener('click', stopShare);
 
 let update = null;
 
+let lastCheck = 0;
+
 async function checkUpdate() {
-  try { update = await api.check_update(); } catch (e) { return; }
+  lastCheck = Date.now();
+  try { update = await api.check_update(); } catch (e) { return null; }
   $('#update-btn').hidden = !update.available;
   if (update.available) $('#update-btn').title = `Flip ${update.version} is out (you have ${update.current})`;
+  return update;
 }
+
+// check again when they come back to the window (at most every 10 minutes)
+window.addEventListener('focus', () => { if (Date.now() - lastCheck > 10 * 60 * 1000) checkUpdate(); });
+
+$('#check-update').addEventListener('click', async () => {
+  $('#update-status').textContent = 'checking…';
+  const u = await checkUpdate();
+  if (!u) { $('#update-status').textContent = 'couldn\'t check right now 😵'; return; }
+  $('#update-status').textContent = u.available ? `Flip ${u.version} is out! hit ⬆ Update at the top` : `you're on the newest version (${u.current}) ✓`;
+});
 
 $('#update-btn').addEventListener('click', () => {
   $('#update-text').textContent = `Flip ${update.version} is out! You have ${update.current}.`;
@@ -1109,7 +1124,7 @@ window.addEventListener('pywebviewready', async () => {
   watchBrain();
   pollRoblox();
   setTimeout(checkUpdate, 4000);
-  setInterval(checkUpdate, 6 * 3600 * 1000);
+  setInterval(checkUpdate, 30 * 60 * 1000);
 });
 
 setChatting(false);

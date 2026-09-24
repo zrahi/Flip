@@ -175,6 +175,13 @@ def run(api):
     step("desktop pet shows up", pet)
     api.hide_pet()
 
+    def update_check():
+        u = api.check_update()
+        if "current" not in u or u["current"] == "dev":
+            raise Failed(f"bad update info: {u}")
+        return f"on {u['current']}, newest {u.get('version')}"
+    step("update check", update_check)
+
     def log_out_and_in():
         call("logOut()")
         wait_for("document.body.classList.contains('auth')", 15)
