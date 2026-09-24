@@ -48,6 +48,8 @@ def speakable(text):
     return text
 
 
+CALL_EARS = "base.en"  # speech-to-text for voice calls (fast)
+
 FRAME = 512  # 32 ms at 16 kHz: the size the speech detector works on
 
 # Words he should expect to hear, so speech-to-text spells them right.
@@ -144,7 +146,7 @@ def list_mics():
 class Voice:
     def __init__(self, settings):
         self._s = settings
-        self._whisper = None
+        self._whisper = {}
         self._whisper_lock = threading.Lock()
         self._ears_lock = threading.Lock()  # one speech-to-text run at a time
         self._stream = None
@@ -159,30 +161,33 @@ class Voice:
     # ---------- ears ----------
 
     def preload(self):
-        try:
-            self._get_whisper()
-        except Exception:
-            log.exception("Couldn't load speech-to-text")
+        for quick in (True, False):
+            try:
+                self._get_whisper(quick)
+            except Exception:
+                log.exception("Couldn't load speech-to-text")
         self.preload_mouth()
 
-    def _get_whisper(self):
+    def _get_whisper(self, quick=False):
+        """quick (voice calls): the base model, about 3x faster than small with the same results on
+        normal talking. Click-to-talk keeps the more careful small one."""
+        size = CALL_EARS if quick else (self._s.get("whisper_model") or "small.en")
         with self._whisper_lock:
-            if self._whisper is None:
+            if size not in self._whisper:
                 import shutil
 
                 from faster_whisper import WhisperModel
                 from faster_whisper.utils import download_model
 
                 from paths import DATA
-                size = self._s.get("whisper_model") or "small.en"
                 folder = DATA / "speech" / size
                 if not (folder / "model.bin").exists():
                     # a plain folder: the default download kept a second copy of the model on Windows
                     download_model(size, output_dir=str(folder))
-                self._whisper = WhisperModel(str(folder), device="cpu", compute_type="int8", cpu_threads=_threads())
+                self._whisper[size] = WhisperModel(str(folder), device="cpu", compute_type="int8", cpu_threads=_threads())
                 for old in (DATA / "speech").glob("models--*"):  # left over from older versions
                     shutil.rmtree(old, ignore_errors=True)
-            return self._whisper
+            return self._whisper[size]
 
     def _open_mic(self, on_audio, blocksize=0):
         import sounddevice as sd
@@ -219,7 +224,7 @@ class Voice:
         window = max(4, min(30, int(len(audio) / RATE) + 2)) if quick else 30
 
         def run(window):
-            segments, _ = self._get_whisper().transcribe(
+            segments, _ = self._get_whisper(quick).transcribe(
                 audio, language="en", beam_size=1 if quick else 5, initial_prompt=", ".join(self.names + [HINT_WORDS]),
                 condition_on_previous_text=False, without_timestamps=quick, chunk_length=window,
                 vad_filter=trim_silence, vad_parameters={"threshold": 0.3, "min_silence_duration_ms": 600},
