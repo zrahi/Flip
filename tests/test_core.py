@@ -371,8 +371,9 @@ def test_brain_memory_tools_and_streaming():
 
     used.clear()
     reply, _, _ = b.chat("c0ffee", "calc please: what's 59382 × 912?")
-    assert used == ["math"] and "54156384" in reply  # the calculator's exact answer came back to him
-    assert "math tool" in FakeModel.last["messages"][-3]["content"]  # he was told to use it
+    assert used == ["math", "math"] and "54156384" in reply  # worked out up front, and his own call came back
+    asked = FakeModel.last["messages"][-3]["content"]
+    assert "59382 * 912 → 54156384" in asked and "math tool" in asked  # he got the exact answer in advance
 
     b.chat("c0ffee", "how do I play Sova on Ascent?")  # Valorant know-how rides along with the message…
     assert "Hunter's Fury" in FakeModel.last["messages"][-1]["content"]
@@ -387,7 +388,7 @@ def test_brain_memory_tools_and_streaming():
 
     b.chat("c0ffee", "again", voice=True)  # voice note goes on the message, the system text stays the same
     assert FakeModel.last["messages"][0]["content"] == system
-    assert "voice call" in FakeModel.last["messages"][-1]["content"]
+    assert "voice call" in FakeModel.last["messages"][-1]["content"].lower()
 
     b.chat("c0ffee", "what's on my screen?", image="data:image/jpeg;base64,AAAA", image_label="Valorant")
     parts = FakeModel.last["messages"][-1]["content"]
@@ -466,3 +467,75 @@ def test_math_tool_is_exact_and_safe():
     assert calc('__import__("os").system("calc")').startswith("ERROR")
     assert calc("().__class__").startswith("ERROR")
     assert calc("9**9**9").startswith("ERROR")
+
+
+def test_voice_call_answers_finished_sentences_fast():
+    t = np.arange(voice.FRAME) / voice.RATE
+    quiet = lambda sec: [np.zeros(voice.FRAME, dtype=np.float32) for _ in range(int(sec * voice.RATE / voice.FRAME))]
+    loud = lambda sec: [(0.2 * np.sin(2 * np.pi * 220 * t)).astype(np.float32) for _ in range(int(sec * voice.RATE / voice.FRAME))]
+    by_loudness = lambda f: min(1.0, float(np.sqrt(np.mean(f ** 2))) * 25)
+    pcm = lambda frames: base64.b64encode((np.concatenate(frames) * 32767).astype("<i2").tobytes()).decode()
+
+    def heard_after(text):
+        """How long after they stop talking he gets what they said (fed in real time, 64 ms chunks)."""
+        heard = []
+        v = voice.Voice({})
+        v.transcribe = lambda audio, **k: text
+        v.call_start(heard.append, chance=by_loudness)
+        talk, hush = loud(1.2), quiet(1.3)
+        for i in range(0, len(talk), 2):
+            v.call_feed(pcm(talk[i:i + 2]))
+        stopped = time.time()
+        for f in range(0, len(hush), 2):
+            v.call_feed(pcm(hush[f:f + 2]))
+            time.sleep(0.064)
+            if heard:
+                break
+        deadline = time.time() + 3
+        while not heard and time.time() < deadline:
+            time.sleep(0.01)
+        assert heard == [text]
+        return time.time() - stopped
+
+    assert voice.sounds_finished("What agent should I play?") and not voice.sounds_finished("So what about the")
+    assert not voice.sounds_finished("what agent should I play")
+    fast, slow = heard_after("What should I buy?"), heard_after("so what about the")
+    assert fast < 0.45, fast           # a finished question: answered after ~0.25 s of quiet
+    assert 0.7 < slow < 1.3, slow      # sounds unfinished: he waits for more
+
+
+def test_voice_can_be_cut_off_mid_word():
+    import threading as th
+
+    v = voice.Voice({})
+    try:
+        v.preload_mouth()
+        v._get_kokoro()
+    except Exception as e:
+        pytest.skip(f"voice model not available here: {e}")
+    out = []
+    worker = th.Thread(target=lambda: out.append(v.say("this is a long sentence that takes a good while to make into audio, "
+                                                       "so we can cut it off half way through", gen=1)))
+    start = time.time()
+    worker.start()
+    time.sleep(0.2)
+    v.cancel_speech(2)
+    worker.join()
+    assert out == [None] and time.time() - start < 1.0
+    clip = v.say("next", gen=2)
+    assert clip["mime"] == "audio/pcm" and clip["sr"] > 0
+
+
+def test_calculations_are_worked_out_up_front():
+    import mathtool
+    import router
+
+    pre = mathtool.precompute
+    assert pre("What's 59382 × 912?") == [("59382 * 912", "54156384")]
+    assert pre("What's 15% of 80?") == [("15% of 80", "12")]
+    assert pre("Solve 2x + 3 = 11") == [("2x + 3 = 11", "x = 4")]
+    assert pre("Solve the system: x + y = 10 and x - y = 4") == [("x + y = 10; x - y = 4", "x = 7, y = 3")]
+    for chatty in ("we won 13-5", "I have 3 kids and 2 dogs", "x = the best agent", "my crosshair = 0.5", "hey"):
+        assert pre(chatty) == [], chatty
+    assert router.route("hi! my main is Jett. reply in one short sentence").kind != "live"
+    assert router.route("We lost pistol round on attack. What should our team do next round?").kind == "valorant"

@@ -317,7 +317,7 @@ function findCut(s, first) {
   if (first) {  // no punctuation yet: say the first few words right away instead of waiting
     const words = /\S+\s+/g;
     let n = 0;
-    while ((m = words.exec(s))) if (++n >= 5 && m.index + m[0].length >= 24) return m.index + m[0].length;
+    while ((m = words.exec(s))) if (++n >= 4 && m.index + m[0].length >= 16) return m.index + m[0].length;
   }
   return 0;
 }
@@ -329,6 +329,7 @@ class Speaker {
 
   reset() {
     this.token = {};             // changes when he gets cut off, so leftover work is dropped
+    this.gen = Date.now();       // same idea on the Python side: parts asked for before this get skipped
     this.text = '';              // everything he's written so far
     this.pos = 0;                // how much of it is handled already
     this.inCode = false;
@@ -385,12 +386,12 @@ class Speaker {
     this.queued++;
     if (!voiceStats.firstSay) voiceStats.firstSay = Date.now();
     const clip = this.making = this.making
-      .then(() => (this.token === token ? api.say(text) : null))
+      .then(() => (this.token === token ? api.say(text, this.gen, this.text.length > 350) : null))
       .catch(() => null);
     this.playing = this.playing.then(async () => {
       const c = await clip;
       if (this.token !== token) return;
-      if (!voiceStats.firstPlay) voiceStats.firstPlay = Date.now();
+      if (!voiceStats.clipReady) voiceStats.clipReady = Date.now();
       if (c) await playClip(c);
       else await speakWithWindows(text);
     }).catch(() => {}).finally(() => { if (this.token === token) this.queued--; });
@@ -399,67 +400,121 @@ class Speaker {
 
 const speaker = new Speaker();
 let voiceStats = {};  // timings, checked by the build's app test
+let lastBargeIn = 0;
 
 function stopSpeaking() {
   speaker.reset();
+  stopAudio();
+  if (api) api.cancel_speech(speaker.gen);
   if (currentAudio) currentAudio.pause();
   if (window.speechSynthesis) speechSynthesis.cancel();
   if (speakDone) speakDone();
 }
 window.stopSpeaking = stopSpeaking;
 
+// First sound of a reply: report the turn's timings (and show them during calls).
+function started(noAudio) {
+  if (voiceStats.firstPlay) return;
+  voiceStats.firstPlay = Date.now();
+  voiceStats.noAudio = !!noAudio;
+  if (!voiceOn || !api) return;
+  api.voice_timing({ firstSay: voiceStats.firstSay, clipReady: voiceStats.clipReady, firstPlay: voiceStats.firstPlay })
+    .then((ms) => {
+      voiceStats.latency = ms;
+      if (ms && ms.total != null) {
+        $('#latency').textContent = `heard ${fmtMs(ms.endpoint + (ms.stt || 0))} · brain ${fmtMs((ms.to_request || 0) + (ms.first_token || 0))}`
+          + ` · voice ${fmtMs((ms.to_speech || 0) + (ms.tts || 0) + (ms.to_play || 0))} · total ${fmtMs(ms.total)}`;
+      }
+    }).catch(() => {});
+}
+const fmtMs = (v) => (v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${Math.max(0, v | 0)}ms`);
+
+// His voice plays through Web Audio: raw samples go straight into a buffer, each part is scheduled
+// to start exactly when the previous one ends (no gaps), and cutting him off fades out in ~60 ms.
+let outMaster = null, outAnalyser = null, nextStart = 0, liveSources = [], mouthRaf = 0;
+
+function audioOut() {
+  if (!audioCtx) {
+    audioCtx = new AudioContext({ latencyHint: 'interactive' });
+    outMaster = audioCtx.createGain();
+    outAnalyser = audioCtx.createAnalyser();
+    outAnalyser.fftSize = 512;
+    outMaster.connect(outAnalyser);
+    outAnalyser.connect(audioCtx.destination);
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+async function clipBuffer(ctx, clip) {
+  const bin = atob(clip.audio);
+  if (clip.mime === 'audio/pcm') {
+    const n = bin.length >> 1, buf = ctx.createBuffer(1, n, clip.sr || 24000), ch = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) {
+      const v = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8);
+      ch[i] = (v >= 32768 ? v - 65536 : v) / 32768;
+    }
+    return buf;
+  }
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return ctx.decodeAudioData(bytes.buffer);
+}
+
+// Moves his mouth with how loud he is right now.
+function mouthLoop() {
+  cancelAnimationFrame(mouthRaf);
+  const data = new Uint8Array(outAnalyser.fftSize);
+  const tick = () => {
+    if (!liveSources.length) { pet.mouth(0); return; }
+    outAnalyser.getByteTimeDomainData(data);
+    let sum = 0;
+    for (const v of data) { const d = (v - 128) / 128; sum += d * d; }
+    pet.mouth(Math.min(1, Math.sqrt(sum / data.length) * 4.5));
+    mouthRaf = requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+// Plays one part of his reply. Resolves just before it ends, so the next part is lined up back to back.
 function playClip(clip) {
   return new Promise((resolve) => {
-    const audio = new Audio(`data:${clip.mime};base64,${clip.audio}`);
-    audio.preservesPitch = false;          // playing a bit faster makes him sound younger (cute style)
-    audio.playbackRate = clip.rate || 1;
-    currentAudio = audio;
-    let analyser = null, data = null, raf = 0, finished = false;
-
-    try {
-      audioCtx = audioCtx || new AudioContext();
-      const src = audioCtx.createMediaElementSource(audio);
-      analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 512;
-      data = new Uint8Array(analyser.fftSize);
-      src.connect(analyser);
-      analyser.connect(audioCtx.destination);
-      audioCtx.resume();
-    } catch (e) { analyser = null; }
-
-    // Move his mouth with how loud the voice is right now.
-    const tick = () => {
-      let level;
-      if (analyser) {
-        analyser.getByteTimeDomainData(data);
-        let sum = 0;
-        for (const v of data) { const d = (v - 128) / 128; sum += d * d; }
-        level = Math.min(1, Math.sqrt(sum / data.length) * 4.5);
-      } else {
-        level = 0.3 + Math.random() * 0.6;
-      }
-      pet.mouth(level);
-      raf = requestAnimationFrame(tick);
-    };
-
-    const done = () => {
-      if (finished) return;
-      finished = true;
-      cancelAnimationFrame(raf);
-      pet.mouth(0);
-      currentAudio = null;
-      speakDone = null;
-      resolve();
-    };
-    speakDone = done;
-    audio.onended = done;
-    audio.onpause = done;
-    audio.onerror = done;
-
-    audio.play()
-      .then(() => { setState('talking'); tick(); })
-      .catch(() => { finished = true; currentAudio = null; resolve(); });
+    let ctx, done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    try { ctx = audioOut(); } catch (e) { started(true); finish(); return; }
+    clipBuffer(ctx, clip).then((buf) => {
+      if (done) return;
+      const rate = clip.rate || 1;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.playbackRate.value = rate;  // a bit faster = a bit higher: the cute style
+      src.connect(outMaster);
+      const now = ctx.currentTime;
+      if (!liveSources.length) { outMaster.gain.cancelScheduledValues(now); outMaster.gain.setValueAtTime(1, now); }
+      const at = Math.max(now + 0.005, nextStart);
+      const dur = buf.duration / rate;
+      src.start(at);
+      nextStart = at + dur;
+      liveSources.push(src);
+      src.onended = () => { liveSources = liveSources.filter((x) => x !== src); if (!liveSources.length) pet.mouth(0); finish(); };
+      setTimeout(() => { if (!done || liveSources.includes(src)) { started(ctx.state !== 'running'); setState('talking'); mouthLoop(); } },
+        Math.max(0, (at - now) * 1000));
+      speakDone = () => { stopAudio(); finish(); };
+      setTimeout(finish, Math.max(0, (at - now + dur) * 1000 - 80));  // also if the clock never runs (no speakers)
+    }).catch(() => { started(true); finish(); });
   });
+}
+
+function stopAudio() {
+  nextStart = 0;
+  if (!audioCtx || !liveSources.length) return;
+  const now = audioCtx.currentTime;
+  outMaster.gain.cancelScheduledValues(now);
+  outMaster.gain.setValueAtTime(outMaster.gain.value, now);
+  outMaster.gain.linearRampToValueAtTime(0, now + 0.06);  // quick fade instead of a click
+  for (const src of liveSources) { try { src.stop(now + 0.07); } catch (e) {} }
+  liveSources = [];
+  pet.mouth(0);
 }
 
 // Backup voice (Windows' built-in one) for when the online voice doesn't work.
@@ -572,7 +627,7 @@ class Mic {
   _take(samples) {
     this.buf.push(samples);
     this.size += samples.length;
-    const block = Math.round(this.ctx.sampleRate / 10);  // 100 ms
+    const block = Math.round(this.ctx.sampleRate * 0.064);  // 64 ms: two speech-detector frames
     if (this.size < block) return;
     const all = new Float32Array(this.size);
     let at = 0;
@@ -661,7 +716,7 @@ async function feedCall(pcm) {
 // They started talking: if he's talking or still writing, he stops and listens.
 function youreTalking() {
   if (busy || speaker.active) {
-    voiceStats.bargeIn = Date.now();
+    voiceStats.bargeIn = lastBargeIn = Date.now();
     stopReply();
   }
   if (pet.state !== 'listening') setState('listening');
@@ -992,7 +1047,7 @@ async function openSettings() {
   $('#set-voice').innerHTML = Object.entries(s.voices).map(([id, label]) => `<option value="${id}">${esc(label)}</option>`).join('');
   $('#set-voice').value = s.voices[s.voice] ? s.voice : Object.keys(s.voices)[0];
   $('#set-style').value = s.voice_style || 'cute';
-  $('#set-speed').value = String(s.talk_speed || 1);
+  $('#set-speed').value = String(s.talk_speed || 1.25);
   $('#set-mic').innerHTML = '<option value="">Windows default</option>' +
     s.mics.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
   $('#set-mic').value = s.mic == null ? '' : String(s.mic);

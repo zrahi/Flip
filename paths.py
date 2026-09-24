@@ -20,7 +20,7 @@ DEFAULT_SETTINGS = {
     "local_model": "auto",
     "voice": "am_fenrir",
     "voice_style": "cute",
-    "talk_speed": 1.0,
+    "talk_speed": 1.25,
     "mic": None,
     "fast_mode": False,
     "brain_size": "smart",
@@ -48,7 +48,10 @@ def load_settings():
         settings["voice_style"] = "cute"
         if settings.get("whisper_model") in (None, "base.en"):
             settings["whisper_model"] = "small.en"
-    settings["version"] = 3
+    if settings["version"] < 4:  # v4: he talks quicker by default (the old "normal" was slow)
+        old = float(settings.get("talk_speed") or 1.0)
+        settings["talk_speed"] = 1.25 if old <= 1.0 else 1.4 if old <= 1.2 else 1.6
+    settings["version"] = 4
     save_settings(settings)
     return settings
 

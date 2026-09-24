@@ -4,6 +4,7 @@ import atexit
 import json
 import logging
 import os
+import queue
 import sys
 import threading
 import time
@@ -39,7 +40,7 @@ def selftest(out_path):
         import voice
         v = voice.Voice({})
         clip = v.say("testing, one two three")
-        lines.append(f"{'ok' if clip and clip['mime'] == 'audio/wav' and len(clip['audio']) > 10000 else 'FAIL'} his voice speaks")
+        lines.append(f"{'ok' if clip and clip['mime'] == 'audio/pcm' and len(clip['audio']) > 10000 else 'FAIL'} his voice speaks")
     except BaseException as e:
         lines.append(f"FAIL his voice speaks: {e!r}")
     try:
@@ -228,6 +229,10 @@ class Api:
         self._stop = threading.Event()
         self._voice_on = False
         self._share = None  # {"id", "title"} of the screen/window he can see
+        self._turn_send = {}
+        self.last_latency = {}
+        self._ui_queue = queue.Queue()
+        threading.Thread(target=self._ui_sender, daemon=True).start()
 
     # ---------- startup info ----------
 
@@ -345,18 +350,8 @@ class Api:
         if self._engine.status["state"] != "ready":
             return {"error": "hold up, my brain is still loading 🧠 give me a sec"}
         self._stop.clear()
-        buf, last = [], [0.0]
-
-        def flush():
-            if buf and self._main:
-                self._main.evaluate_js(f"onText({json.dumps(''.join(buf))})")
-                buf.clear()
-            last[0] = time.time()
-
-        def on_text(piece):  # send the reply to the window in small batches as it's written
-            buf.append(piece)
-            if time.time() - last[0] > 0.05:
-                flush()
+        self._turn_send = {"send": time.time()}
+        on_text = self._ui_text  # every piece goes to the window right away (the sender merges them)
 
         image, label = None, ""
         if self._share:
@@ -364,16 +359,14 @@ class Api:
             label = self._share["title"]
             if image is None:  # the window got closed
                 self._share = None
-                if self._main:
-                    self._main.evaluate_js("onShareEnded()")
+                self._ui("onShareEnded()")
+
         def on_reset():  # he's redoing a reply that repeated an earlier one
-            buf.clear()
-            if self._main:
-                self._main.evaluate_js("onResetText()")
+            self._ui("onResetText()")
 
         try:
             reply, chat, stopped = self._brain.chat(chat_id, text, voice, on_text, self._stop, image, label, on_reset)
-            flush()
+            self._ui_flush()  # all of the reply is in the window before send() returns
             if self._pet is not None and (self._chat_hidden or voice) and not stopped:
                 self.pet_say(reply)
             return {"reply": reply, "stopped": stopped, "chat_id": chat["id"], "title": chat["title"],
@@ -496,8 +489,11 @@ class Api:
 
     # ---------- voice ----------
 
-    def say(self, text):
-        return self._voice.say(text)
+    def say(self, text, gen=None, long=False):
+        return self._voice.say(text, gen, long)
+
+    def cancel_speech(self, gen=None):
+        return self._voice.cancel_speech(gen)
 
     def listen_start(self):
         try:
@@ -531,11 +527,11 @@ class Api:
     def voice_call_start(self):
         def heard(text):
             if self._main:
-                self._main.evaluate_js(f"onHeard({json.dumps(text)})")
+                self._ui(f"onHeard({json.dumps(text)})")
 
         def hearing(text):  # what they've said so far, while they're still talking
             if self._main:
-                self._main.evaluate_js(f"onHearing({json.dumps(text)})")
+                self._ui(f"onHearing({json.dumps(text)})")
 
         try:
             self._voice.call_start(heard, on_partial=hearing)
@@ -546,6 +542,24 @@ class Api:
 
     def voice_feed(self, pcm, speaking=False):
         return self._voice.call_feed(pcm, bool(speaking))
+
+    def voice_timing(self, js):
+        """The window reports when his first words were sent to his voice, came back as audio, and
+        started playing; together with the ears' and brain's times that's the whole turn, in ms."""
+        turn = dict(self._voice.turn or {})
+        turn.update(self._turn_send or {})
+        turn.update(getattr(self._brain, "last_times", {}) or {})
+        t = {k: v for k, v in turn.items() if v}
+        for k in ("firstSay", "clipReady", "firstPlay"):
+            if js.get(k):
+                t[k] = js[k] / 1000
+        order = [("endpoint", "stopped", "endpoint"), ("stt", "endpoint", "stt"), ("to_request", "stt", "request"),
+                 ("first_token", "request", "first_token"), ("to_speech", "first_token", "firstSay"),
+                 ("tts", "firstSay", "clipReady"), ("to_play", "clipReady", "firstPlay"), ("total", "stopped", "firstPlay")]
+        ms = {name: round((t[b] - t[a]) * 1000) for name, a, b in order if a in t and b in t}
+        log.info("LATENCY %s", " | ".join(f"{k} {v}ms" for k, v in ms.items()))
+        self.last_latency = ms
+        return ms
 
     def voice_call_stop(self):
         self._voice.call_stop()
@@ -646,13 +660,55 @@ class Api:
 
     # ---------- plumbing ----------
 
+    # Messages to the chat window go through one sender thread: pywebview's evaluate_js waits until
+    # the window has run the code, which used to hold up the ears and the brain on every call.
+
+    def _ui(self, code):
+        self._ui_queue.put(("js", code))
+
+    def _ui_text(self, piece):
+        self._ui_queue.put(("text", piece))
+
+    def _ui_flush(self, timeout=3):
+        done = threading.Event()
+        self._ui_queue.put(("flush", done))
+        done.wait(timeout)
+
+    def _ui_sender(self):
+        while True:
+            kind, value = self._ui_queue.get()
+            if kind == "flush":
+                value.set()
+                continue
+            if kind == "text":  # merge the words that piled up while the last call ran
+                pieces, later = [value], []
+                while True:
+                    try:
+                        k, v = self._ui_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    if k == "text" and not later:
+                        pieces.append(v)
+                    else:
+                        later.append((k, v))
+                code = f"onText({json.dumps(''.join(pieces))})"
+                for item in reversed(later):  # put the rest back in front, in order
+                    self._ui_queue.queue.appendleft(item)
+            else:
+                code = value
+            try:
+                if self._main:
+                    self._main.evaluate_js(code)
+            except Exception:
+                log.exception("Window call failed: %s", code[:80])
+
     def _on_route(self, way):
         if self._main:
-            self._main.evaluate_js(f"onRoute({json.dumps(way.kind)}, {json.dumps(way.think)})")
+            self._ui(f"onRoute({json.dumps(way.kind)}, {json.dumps(way.think)})")
 
     def _on_tool(self, name):
         if self._main:
-            self._main.evaluate_js(f"onTool({json.dumps(name)})")
+            self._ui(f"onTool({json.dumps(name)})")
 
     def _on_main_closing(self):
         if self._quitting:

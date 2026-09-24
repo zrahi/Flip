@@ -230,6 +230,15 @@ class LocalBackend:
         return clean_reply(shown) + "\n\nbro I did like 15 steps and got lost 😭 tell me to keep going", False
 
 
+def window_start(n):
+    """Where the part of the chat the brain sees starts. It moves forward in steps of 10 messages
+    instead of one per message: the brain keeps what it already read of the chat (its cache) as long
+    as the start stays put, so a sliding window made every single reply re-read the whole chat."""
+    if n <= MAX_HISTORY:
+        return 0
+    return ((n - MAX_HISTORY) // 10 + 1) * 10
+
+
 def _repeats(reply, earlier):
     """True if the reply is (nearly) one of his earlier replies, or starts the same way."""
     import difflib
@@ -359,7 +368,7 @@ class Brain:
 
     def chat(self, chat_id, text, voice=False, on_text=None, stop=None, image=None, image_label="", on_reset=None):
         chat = store.load_chat(chat_id) or store.new_chat(chat_id)
-        history = [{"role": m["role"], "content": m["content"]} for m in chat["messages"][-MAX_HISTORY:]]
+        history = [{"role": m["role"], "content": m["content"]} for m in chat["messages"][window_start(len(chat["messages"])):]]
         recent = " ".join(str(m["content"]) for m in history[-4:])
         topic = recent + " " + text
         mode = self.settings.get("mode") or ("fast" if self.settings.get("fast_mode") else "auto")
@@ -375,18 +384,25 @@ class Brain:
                 notes.append(router.describe_match(chat["match"]))
         tags = set(way.tags)
         chosen = knowledge.pick(self.knowledge, text + " " + (recent[-600:] if way.kind != "chat" else ""), tags,
-                                budget=1800 if way.kind == "live" else 5000) if tags or way.kind != "chat" else []
+                                budget=1000 if voice or way.kind == "live" else 5000) if tags or way.kind != "chat" else []
         low = (text + " " + recent[-300:]).lower()
         extra = [sk["text"] for sk in self.skills if sk["keywords"] != [""] and any(k in low for k in sk["keywords"])]
         if chosen or extra:
             notes.insert(0, "(Your notes for this — use them, don't quote them:\n" + "\n\n".join(
                 ([knowledge.render(chosen)] if chosen else []) + extra) + ")")
+        if way.math_tool:
+            done = mathtool.precompute(text)
+            if done:
+                self.on_tool("math")
+                usage.record(tool="math")
+                notes.append("(Calculator results for this message — exact, use these numbers: " +
+                             "; ".join(f"{q} → {a}" for q, a in done) + ")")
         if way.note:
             notes.append(way.note)
         if voice:
-            notes.append("(We're in a live voice call and this was transcribed from my voice, so ignore missing "
-                         "punctuation. Talk back like on a call: short spoken sentences, plain words only, "
-                         "no emojis, lists, code, LaTeX or markdown unless I ask.)")
+            notes.append("(Voice call, transcribed from my voice, so ignore missing punctuation. Answer first, in 1-3 "
+                         "short spoken sentences. No intro, no filler like \"Sure!\" or \"Great question\", don't repeat "
+                         "my question, no emojis, lists, code, LaTeX or markdown. More detail only if I ask.)")
         if notes:
             prompt += "\n\n" + "\n\n".join(notes)
         earlier = [m["content"] for m in history if m["role"] == "assistant"][-4:]
@@ -422,7 +438,8 @@ class Brain:
             log.warning("Still too long for the brain, retrying short: %s", e)  # guesses were off; go minimal
             reply, stopped = self.backend.answer(self._system(), history[-2:], list(MEMORY_TOOLS), self._run_tool,
                                                  stream_text, stop, max_tokens=limit, temperature=way.temperature)
-        if not stopped and reply and _repeats(reply, earlier):
+        # (not in voice calls: he's already saying it out loud, and a redo costs a whole reply of time)
+        if not stopped and reply and not voice and _repeats(reply, earlier):
             # Still said the same thing as before: throw it away and try again, told plainly this time.
             log.info("Reply repeated an earlier one, retrying: %s", reply[:80])
             if on_reset:
@@ -439,6 +456,7 @@ class Brain:
             reply, stopped = self.backend.answer(system, retry, tools, self._run_tool, stream_text, stop,
                                                  max_tokens=limit, temperature=1.0)
         done = time.time()
+        self.last_times = {"request": started, "first_token": first[0] or done, "done": done}
         self.last_stats = {"secs": round(done - started, 1),
                            "first": round((first[0] or done) - started, 1), "kind": way.kind}
         usage.record(chat=1, think=int(way.think), kind=way.kind,

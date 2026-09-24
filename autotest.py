@@ -189,7 +189,9 @@ def run(api):
         # more than one sentence: the first one has to go to his voice before he's done writing
         if re.search(r"[.!?]\s+\w", r["text"]) and not (stats.get("firstSay") and stats["firstSay"] < stats["replyDone"]):
             raise Failed(f"he only started talking after he finished typing: {stats}")
-        return (f"heard {heard!r} → {r['text'][:90]!r} | speech-to-text {getattr(api._voice, 'last_stt', None)} | "
+        wait_for("voiceStats.latency || voiceStats.firstPlay", 30, "the timing report")
+        time.sleep(1)
+        return (f"LATENCY {api.last_latency} | heard {heard!r} → {r['text'][:90]!r} | speech-to-text {getattr(api._voice, 'last_stt', None)} | "
                 f"first words to his voice after {secs('firstSay')}s, reply written after {secs('replyDone')}s")
     step("voice call: hears me, talks while typing", voice_call)
 
@@ -197,6 +199,7 @@ def run(api):
         users = js("document.querySelectorAll('.msg.user').length")
         call("send('explain everything about playing Sova, step by step')")
         wait_for("stream && stream.text.length > 10", 300, "him to start answering")
+        injected = js("Date.now()")
         call(f"injectSpeech({json.dumps(speech_pcm('wait, stop. what gun should I buy on an eco round?'))})")
         wait_for(f"document.querySelectorAll('.msg.user').length > {users + 1}", 120, "him to hear me over him")
         wait_for("busy === false", 600, "his next reply")
@@ -208,7 +211,9 @@ def run(api):
             raise Failed(f"he didn't stop when I talked over him (heard {heard!r})")
         if not any(w in heard.lower() for w in ("gun", "eco", "buy")):
             raise Failed(f"misheard me: {heard!r}")
-        return f"he stopped, heard {heard!r} → {json.loads(last_reply()).get('text', '')[:80]!r}"
+        cut_ms = js("lastBargeIn") - injected
+        return (f"he stopped {cut_ms}ms after I started talking (speech starts ~200ms into the clip), heard {heard!r} → "
+                f"{json.loads(last_reply()).get('text', '')[:80]!r} | LATENCY {api.last_latency}")
     step("voice call: talking over him stops him", talk_over_him)
     call("endVoice()")
 

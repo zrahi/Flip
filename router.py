@@ -20,7 +20,8 @@ VAL_WORDS = ["valorant", "valo", "spike", "planted", "defuse", "defusing", "eco 
              "duelist", "initiator", "controller", "sentinel", "radiant", "immortal", "ascendant", "diamond",
              "platinum", "ranked", "rr", "credits", "clutch", "callout", "callouts", "crosshair", "heaven", "hookah",
              "a site", "b site", "c site", "a main", "b main", "mid", "rotate", "stack", "flank", "last guy",
-             "buy or save", "save or buy", "eco", "force", "one tap", "peek", "peeking", "util", "utility"]
+             "buy or save", "save or buy", "eco", "force", "one tap", "peek", "peeking", "util", "utility",
+             "pistol", "pistol round", "save round", "plant", "rifle round", "full save"]
 LIVE_WORDS = ["planted", "flank", "flanking", "last guy", "last one", "rotate", "rotating", "push", "pushing",
               "they're", "theyre", "enemy", "enemies", "we planted", "spike down", "heard", "saw", "spotted", "lit",
               "one shot", "tagged", "attack", "attacking", "defense", "defending", "credits", "save or buy",
@@ -72,7 +73,9 @@ def is_valorant(text):
 
 
 POSITION = re.compile(r"\b(one|two|three|four|five|\d)\s+(a|b|c|mid|heaven|main|site|long|short|link|market|hookah|"
-                      r"tree|garden|elbow|window|ramps|rafters|lobby|spawn|cat|catwalk|showers|hell|top|bottom)\b")
+                      r"tree|garden|elbow|window|ramps|rafters|lobby|spawn|cat|catwalk|showers|hell|top|bottom)\b"
+                      r"(?!\s+(sentence|sentences|answer|reply|word|words|question|thing|things|time|second|seconds|"
+                      r"minute|minutes|sec|way|story|joke|line|lines|paragraph|version|list|summary|message|text))")
 STRONG_LIVE = re.compile(r"\b\d\s*(v|vs)\s*\d\b|\bplanted\b|\bspike (down|planted)\b|\blast (guy|one|enemy)\b|"
                          r"\bflank(ing|ed)?\b|\b\d(\.\d)?\s*k\b|\b\d{3,4}\s*(credits|creds|cred)\b|\bdefusing\b|"
                          r"\b(keeps?|they'?re|enemy|enemies) (push|pushing|rushing|peeking|holding)")
@@ -139,17 +142,17 @@ def route(text, mode="auto", recent="", voice=False):
                          "match state and the map's real callouts. No greetings, emojis or generic advice.)")
         else:
             notes.append("(Valorant: answer like a sharp coach who's also your duo: specific positions, util, "
-                         "timings and the why. Short unless they ask for detail. Don't invent abilities, callouts or "
-                         "patch numbers that aren't in your notes; say if you're unsure.)")
+                         "timings and the why, straight away and confidently. Short unless they ask for detail. "
+                         "Use your notes; don't make up abilities or patch numbers.)")
     if math_q:
         r.math_tool = True
         if r.kind not in ("valorant", "live"):
             r.kind = "math"
         r.temperature = 0.3
         r.status = "calculating…"
-        notes.append("(Math: use the math tool for every calculation, even easy ones, then check the result makes "
-                     "sense. Show short clear steps unless I said to just answer. Write math with LaTeX: $...$ inline, "
-                     "$$...$$ for equations on their own line.)")
+        notes.append("(Math: use the math tool for any calculation that isn't already worked out below, then check "
+                     "the result makes sense. Show short clear steps unless I said to just answer. Write math with "
+                     "LaTeX: $...$ inline, $$...$$ for equations on their own line.)")
     if code and r.kind == "chat":
         r.kind = "roblox" if roblox else "code"
         r.temperature = 0.3
@@ -169,7 +172,7 @@ def route(text, mode="auto", recent="", voice=False):
         r.max_tokens = 300
         notes.append("(Quick mode: keep it short, 1-2 sentences unless I ask for more.)")
     if voice and r.kind != "live":
-        r.max_tokens = min(r.max_tokens or 160, 160)
+        r.max_tokens = min(r.max_tokens or 120, 120)
     r.note = "\n\n".join(notes)
     return r
 

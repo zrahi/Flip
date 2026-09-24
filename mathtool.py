@@ -294,3 +294,56 @@ def run(args):
     if "text" not in out:
         return "ERROR: that took too long to work out"
     return out["text"]
+
+
+# Plain calculations in a message ("what's 59382 × 912?", "15% of 80", "solve 2x+3=11") are worked out
+# before the brain even starts, so he never has to do them in his head or remember to use the tool.
+_NUM = r"\(?-?\d[\d,]*(?:\.\d+)?\)?"
+_CALC = re.compile(rf"{_NUM}(?:\s*(?:[-+*/×x÷^]|\*\*)\s*{_NUM})+|\d[\d.]*\s*%\s*of\s*\$?\d[\d,.]*|"
+                   rf"(?:sqrt|√)\s*\(?\s*\d[\d.]*\s*\)?")
+
+
+_SIDE = re.compile(r"^[\s\d.+\-*/^()a-z]+$")
+
+
+def equations(text):
+    """Clean equations in the message, like "2x + 3 = 11" or "x + y = 10 and x - y = 4" (only numbers,
+    + - * / ^ and single-letter variables; anything wordier is left to the brain)."""
+    out = []
+    for piece in re.split(r"\band\b|;|,|\n|:|\?|\.(?!\d)", text.lower()):
+        if piece.count("=") != 1:
+            continue
+        left, right = (x.strip() for x in piece.split("="))
+        left = left.split()[-8:]  # drop leading words like "solve"
+        while left and re.fullmatch(r"[a-z]{2,}", left[0]):
+            left = left[1:]
+        left = " ".join(left)
+        if not left or not right or not _SIDE.match(left) or not _SIDE.match(right):
+            continue
+        if re.search(r"[a-z]{2,}", left + " " + right) or not re.search(r"[a-z]", left + right):
+            continue
+        out.append(f"{left} = {right}")
+    return out
+
+
+def precompute(text, limit=3):
+    """[(what, answer)] for the calculations written plainly in the message."""
+    found, seen = [], set()
+    t = text.replace("×", "*").replace("÷", "/")
+    for m in _CALC.finditer(t):
+        expr = m.group(0).strip()
+        if re.fullmatch(r"\d+\s*x\s*\d+", expr) and not re.search(r"\d\s*x\s*\d", text):  # "2 x 4" only as times
+            continue
+        expr = re.sub(r"(?<=\d)\s*x\s*(?=\d)", "*", expr)
+        if expr in seen or not re.search(r"[-+*/^%]|sqrt|√", expr) or re.fullmatch(r"\d{1,2}\s*-\s*\d{1,2}", expr):
+            continue  # "13-5" is probably a score
+        seen.add(expr)
+        answer = run({"expression": expr})
+        if not answer.startswith("ERROR"):
+            found.append((expr, answer))
+    eqs = equations(text)
+    if eqs:
+        answer = run({"expression": "; ".join(eqs), "op": "solve"})
+        if not answer.startswith("ERROR") and answer not in ("true", "false", "no solution"):
+            found.append(("; ".join(eqs), answer))
+    return found[:limit]
