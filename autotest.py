@@ -6,6 +6,7 @@ Runs when FLIP_AUTOTEST is set to a folder: results.txt and a screenshot per ste
 import json
 import logging
 import os
+import re
 import time
 import traceback
 from pathlib import Path
@@ -64,6 +65,17 @@ def run(api):
         return js("(() => { const m = [...document.querySelectorAll('.msg.pet')].pop();"
                   " return m ? JSON.stringify({text: m.querySelector('.b').textContent, error: m.classList.contains('error'),"
                   " stopped: !!m.querySelector('.stopped')}) : '{}'; })()")
+
+    def speech_pcm(text):
+        """Someone (not Flip's voice) saying text: 16 kHz 16-bit audio, base64, like the window's mic sends."""
+        import base64
+
+        import numpy as np
+
+        samples, rate = api._voice._get_kokoro().create(text, voice="af_heart", speed=1.0, lang="en-us")
+        audio = np.interp(np.linspace(0, len(samples) - 1, int(len(samples) * 16000 / rate)), np.arange(len(samples)), samples)
+        audio = np.concatenate([audio, np.zeros(16000)])  # then a second of quiet, so it knows I'm done
+        return base64.b64encode((np.clip(audio, -1, 1) * 32767).astype("<i2").tobytes()).decode()
 
     def chat(text, timeout=600):
         before = js("document.querySelectorAll('.msg.pet').length")
@@ -156,6 +168,49 @@ def run(api):
             raise Failed(f"didn't stop: {r}")
         return r["text"][:60]
     step("stop button", stop_button)
+
+    def voice_call():
+        # The build plays a recording into a fake mic: "hey Flip, what agent should I play on Ascent, and why?"
+        users = js("document.querySelectorAll('.msg.user').length")
+        call("startVoice()")
+        wait_for("(callMic && callMic.ready) || micError", 60, "the mic to open")
+        if js("micError"):
+            raise Failed(f"the window's mic didn't open: {js('micError')}")
+        wait_for(f"document.querySelectorAll('.msg.user').length > {users}", 120, "him to hear me")
+        heard = js("[...document.querySelectorAll('.msg.user')].pop().textContent")
+        wait_for("busy === false", 600, "his reply")
+        stats = json.loads(js("JSON.stringify(voiceStats)"))
+        r = json.loads(last_reply())
+        if not r.get("text", "").strip() or r.get("error"):
+            raise Failed(f"bad reply: {r}")
+        if sum(w in heard.lower() for w in ("agent", "play", "ascent", "why")) < 3:
+            raise Failed(f"misheard me: {heard!r}")
+        secs = lambda k: round((stats[k] - stats["start"]) / 1000, 1) if stats.get(k) else None
+        # more than one sentence: the first one has to go to his voice before he's done writing
+        if re.search(r"[.!?]\s+\w", r["text"]) and not (stats.get("firstSay") and stats["firstSay"] < stats["replyDone"]):
+            raise Failed(f"he only started talking after he finished typing: {stats}")
+        return (f"heard {heard!r} → {r['text'][:90]!r} | first words to his voice after {secs('firstSay')}s, "
+                f"reply written after {secs('replyDone')}s")
+    step("voice call: hears me, talks while typing", voice_call)
+
+    def talk_over_him():
+        users = js("document.querySelectorAll('.msg.user').length")
+        call("send('explain everything about playing Sova, step by step')")
+        wait_for("stream && stream.text.length > 10", 300, "him to start answering")
+        call(f"injectSpeech({json.dumps(speech_pcm('wait, stop. what gun should I buy on an eco round?'))})")
+        wait_for(f"document.querySelectorAll('.msg.user').length > {users + 1}", 120, "him to hear me over him")
+        wait_for("busy === false", 600, "his next reply")
+        cut = js("(() => { let p = [...document.querySelectorAll('.msg.user')].pop().previousElementSibling;"
+                 " while (p && !p.matches('.msg.pet')) p = p.previousElementSibling;"
+                 " return !!(p && p.querySelector('.stopped')); })()")
+        heard = js("[...document.querySelectorAll('.msg.user')].pop().textContent")
+        if not cut:
+            raise Failed(f"he didn't stop when I talked over him (heard {heard!r})")
+        if not any(w in heard.lower() for w in ("gun", "eco", "buy")):
+            raise Failed(f"misheard me: {heard!r}")
+        return f"he stopped, heard {heard!r} → {json.loads(last_reply()).get('text', '')[:80]!r}"
+    step("voice call: talking over him stops him", talk_over_him)
+    call("endVoice()")
 
     def fast_mode():
         call("document.querySelector('#fast-btn').click()")

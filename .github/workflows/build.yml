@@ -116,6 +116,9 @@ jobs:
           Copy-Item -Recurse "$env:RUNNER_TEMP\flip-e2e\llama*" $env:FLIP_HOME -ErrorAction SilentlyContinue
           Copy-Item -Recurse "$env:RUNNER_TEMP\flip-e2e\models" $env:FLIP_HOME -ErrorAction SilentlyContinue
           '{"local_model": "Qwen/Qwen3-VL-2B-Instruct-GGUF", "roblox_studio": false, "version": 3}' | Out-File -Encoding ascii "$env:FLIP_HOME\settings.json"
+          # the build machine has no mic: give the chat window a fake one that asks him a question
+          python tests/fake_mic.py "$env:RUNNER_TEMP\mic.wav"
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--use-fake-device-for-media-stream --use-file-for-fake-audio-capture=$env:RUNNER_TEMP\mic.wav"
           $env:FLIP_AUTOTEST = "$env:RUNNER_TEMP\autotest"
           $p = Start-Process -FilePath "$env:LOCALAPPDATA\Programs\Flip\Flip.exe" -PassThru
           if (-not $p.WaitForExit(2700000)) { $p.Kill(); Write-Output "::error title=Autotest::timed out" }

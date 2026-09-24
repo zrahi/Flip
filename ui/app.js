@@ -33,7 +33,7 @@ const STATUS = {
   happy: 'LET\'S GOOO',
   sleeping: 'zzz… (poke me)',
 };
-const VOICE_STATUS = { listening: 'listening…', thinking: 'thinking…', working: 'working on it 🔧', talking: 'talking · tap me to cut me off' };
+const VOICE_STATUS = { listening: 'listening…', thinking: 'thinking…', working: 'working on it 🔧', talking: 'talking · talk over me to cut me off' };
 const POKES = ['ayo 😭', 'that tickles fr', 'bro I\'m tryna vibe', 'hehe', 'poke me again, I dare you', 'W poke ngl', 'hey!! 😤'];
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const local = {
@@ -71,7 +71,7 @@ stage.addEventListener('mouseleave', () => pet.lookAway());
 pet.svg.addEventListener('mouseenter', () => { if (calm() && ['idle', 'sleeping'].includes(pet.state)) setState('excited'); });
 pet.svg.addEventListener('mouseleave', () => { if (pet.state === 'excited') setState('idle'); });
 pet.svg.addEventListener('click', () => {
-  if (voiceOn && pet.state === 'talking') { stopSpeaking(); return; }  // cut him off
+  if (voiceOn && (busy || pet.state === 'talking')) { stopReply(); return; }  // cut him off
   if (!calm() || pet.state === 'talking') return;
   pet.poke();
   if (pet.state === 'sleeping') flash('happy', 1300, 'huh?? I\'m up I\'m up 😳');
@@ -177,7 +177,9 @@ window.onText = (piece) => {
   const stick = nearBottom();
   stream.text += piece;
   stream.b.innerHTML = format(stream.text);
-  if (pet.state !== 'working') setState('thinking', 'typing…');
+  if (stream.talk) speaker.feed(piece);
+  if (voiceOn) $('#cap-pet').textContent = stream.text.replace(/```[\s\S]*?(```|$)/g, ' ').replace(/[*_`#]/g, '');
+  if (!['working', 'talking'].includes(pet.state)) setState('thinking', 'typing…');
   if (stick) toBottom();
 };
 
@@ -186,6 +188,7 @@ window.onResetText = () => {
   if (!stream) return;
   stream.text = '';
   stream.b.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+  if (stream.talk) stopSpeaking();
 };
 
 // Called from Python when he uses a tool (memory, Roblox Studio…).
@@ -220,35 +223,41 @@ async function send(text) {
   const row = addMsg('pet', '');
   const b = row.querySelector('.b');
   b.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
-  stream = { b, text: '' };
+  const talk = voiceOn || !muted;
+  stream = { b, text: '', talk };
+  voiceStats = { start: Date.now() };
 
   let res;
   try { res = await api.send(chatId, text, voiceOn); } catch (e) { res = { error: `something broke 😭 (${e})` }; }
+  const written = stream.text;
   stream = null;
+  voiceStats.replyDone = Date.now();
 
   if (res.error) {
+    stopSpeaking();
     setBusy(false);
     row.classList.add('error');
     b.innerHTML = format(res.error);
     if (voiceOn) $('#cap-pet').textContent = res.error;
-    setState('idle', 'uh oh 😵');
+    setState(voiceOn ? 'listening' : 'idle', 'uh oh 😵');
     return;
   }
 
   b.innerHTML = format(res.reply);
   if (res.stopped) row.insertAdjacentHTML('beforeend', '<div class="stopped">stopped</div>');
   else if (res.secs != null) row.insertAdjacentHTML('beforeend', `<div class="meta">${res.secs}s${fast ? ' · ⚡ fast' : ''}</div>`);
-  if (voiceOn) $('#cap-pet').textContent = res.reply;
   if (chatTitle === 'New chat' || !allChats.some((c) => c.id === chatId)) {
     setTitle(res.title);
     refreshChatList();
   }
-  if (!res.stopped && (!muted || voiceOn)) {
-    if (!voiceOn) statusEl.textContent = 'warming up the vocals…';
-    await speak(res.reply);
+  if (talk && !res.stopped) {
+    if (!written.trim()) speaker.feed(res.reply);  // nothing came in live (like a canned reply)
+    speaker.finish();  // say whatever's left
+    await speaker.idle();
   }
   setBusy(false);
-  if (!voiceOn && !res.stopped && /let'?s go|🔥|goated|\bW\b|hype|🐐|💪|🎉/i.test(res.reply)) flash('happy', 1300);
+  if (voiceOn) setState('listening');
+  else if (!res.stopped && /let'?s go|🔥|goated|\bW\b|hype|🐐|💪|🎉/i.test(res.reply)) flash('happy', 1300);
   else setState('idle');
 }
 
@@ -258,37 +267,111 @@ function stopReply() {
   stopSpeaking();
 }
 
-// ---------- voice out ----------
+// ---------- voice out: he talks while he types ----------
+
+// Where to cut what he's written into pieces to say: at the end of a sentence (the first piece can
+// be tiny so he starts talking right away), or at a comma if a sentence runs long.
+function findCut(s, first) {
+  const re = /[.!?…]+["'”’)\]]*\s+|\n+/g;
+  let m;
+  while ((m = re.exec(s))) {
+    const end = m.index + m[0].length;
+    if (s.slice(0, end).trim().length >= (first ? 1 : 40)) return end;
+  }
+  const soft = first ? 40 : 110;
+  const comma = /[,;:–—]\s+|\s-\s/g;
+  while ((m = comma.exec(s))) {
+    const end = m.index + m[0].length;
+    if (end >= soft) return end;
+  }
+  return 0;
+}
+
+const speakableBit = (t) => /[\p{L}\p{N}]/u.test(t.replace(/\p{Extended_Pictographic}/gu, ''));
+
+class Speaker {
+  constructor() { this.reset(); }
+
+  reset() {
+    this.token = {};             // changes when he gets cut off, so leftover work is dropped
+    this.text = '';              // everything he's written so far
+    this.pos = 0;                // how much of it is handled already
+    this.inCode = false;
+    this.saidCode = false;
+    this.first = true;
+    this.making = Promise.resolve();   // his voice gets made one piece at a time…
+    this.playing = Promise.resolve();  // …and played in order while the next piece is made
+    this.queued = 0;
+  }
+
+  get active() { return this.queued > 0; }
+
+  feed(piece) { this.text += piece; this._pump(false); }
+
+  finish() { this._pump(true); }
+
+  // Speak a whole text (voice test, and replies that weren't written live).
+  async say(text) { this.reset(); this.feed(text); this.finish(); await this.idle(); }
+
+  async idle() { while (this.active) await this.playing; }
+
+  _pump(final) {
+    for (;;) {
+      const rest = this.text.slice(this.pos);
+      if (this.inCode) {  // skip code, it's in the chat
+        const end = rest.indexOf('```');
+        if (end < 0) { if (final) this.pos = this.text.length; return; }
+        this.pos += end + 3;
+        this.inCode = false;
+        continue;
+      }
+      const fence = rest.indexOf('```');
+      if (fence >= 0) {
+        this._say(rest.slice(0, fence));
+        if (!this.saidCode) this._say('I dropped the code in the chat.');
+        this.saidCode = true;
+        this.inCode = true;
+        this.pos += fence + 3;
+        continue;
+      }
+      if (final) { this._say(rest.replace(/`+$/, '')); this.pos = this.text.length; return; }
+      const cut = findCut(rest.replace(/`{1,2}$/, ''), this.first);  // a backtick at the end might start code
+      if (!cut) return;
+      this._say(rest.slice(0, cut));
+      this.pos += cut;
+    }
+  }
+
+  _say(text) {
+    text = text.trim();
+    if (!speakableBit(text)) return;
+    this.first = false;
+    const token = this.token;
+    this.queued++;
+    if (!voiceStats.firstSay) voiceStats.firstSay = Date.now();
+    const clip = this.making = this.making
+      .then(() => (this.token === token ? api.say(text) : null))
+      .catch(() => null);
+    this.playing = this.playing.then(async () => {
+      const c = await clip;
+      if (this.token !== token) return;
+      if (!voiceStats.firstPlay) voiceStats.firstPlay = Date.now();
+      if (c) await playClip(c);
+      else await speakWithWindows(text);
+    }).catch(() => {}).finally(() => { if (this.token === token) this.queued--; });
+  }
+}
+
+const speaker = new Speaker();
+let voiceStats = {};  // timings, checked by the build's app test
 
 function stopSpeaking() {
-  speakToken = null;
+  speaker.reset();
   if (currentAudio) currentAudio.pause();
   if (window.speechSynthesis) speechSynthesis.cancel();
   if (speakDone) speakDone();
 }
 window.stopSpeaking = stopSpeaking;
-
-let speakToken = null;
-
-// Speaks a reply sentence by sentence: the next sentence gets made while the current one plays.
-async function speak(text) {
-  let parts = [];
-  try { parts = await api.speech_parts(text); } catch (e) {}
-  if (!parts.length) return;
-  const token = {};
-  speakToken = token;
-  let next = api.say(parts[0]);
-  for (let i = 0; i < parts.length; i++) {
-    let clip = null;
-    try { clip = await next; } catch (e) {}
-    if (speakToken !== token) return;
-    next = i + 1 < parts.length ? api.say(parts[i + 1]) : null;
-    if (clip) await playClip(clip);
-    else await speakWithWindows(parts[i]);
-    if (speakToken !== token) return;
-  }
-  speakToken = null;
-}
 
 function playClip(clip) {
   return new Promise((resolve) => {
@@ -409,24 +492,217 @@ function pollLevel(on) {
   if (on) levelTimer = setInterval(async () => { try { pet.level(await api.mic_level()); } catch (e) {} }, 100);
 }
 
+// The mic goes through this window because its mic has echo cancellation: he doesn't hear himself
+// through your speakers, so you can talk over him. Audio goes to Python 100 ms at a time (16 kHz).
+const GRAB = `class Grab extends AudioWorkletProcessor {
+  process(inputs) { const ch = inputs[0] && inputs[0][0]; if (ch) this.port.postMessage(ch.slice(0)); return true; }
+}
+registerProcessor('flip-grab', Grab);`;
+
+class Mic {
+  constructor(onchunk) {
+    this.onchunk = onchunk;   // gets Int16Array pieces of 16 kHz audio
+    this.buf = [];
+    this.size = 0;
+    this.ready = false;
+  }
+
+  async open() {
+    const want = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 };
+    this.stream = await navigator.mediaDevices.getUserMedia({ audio: want });
+    const pickedId = await pickedMic();
+    const nowId = this.stream.getAudioTracks()[0]?.getSettings().deviceId;
+    if (pickedId && pickedId !== nowId) {  // they picked a mic in Settings
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ audio: { ...want, deviceId: { exact: pickedId } } });
+        this.stream.getTracks().forEach((t) => t.stop());
+        this.stream = s;
+      } catch (e) {}
+    }
+    this.ctx = new AudioContext();  // (Chromium can't feed a mic into a 16 kHz one, so it's converted below)
+    const url = URL.createObjectURL(new Blob([GRAB], { type: 'application/javascript' }));
+    await this.ctx.audioWorklet.addModule(url);
+    this.src = this.ctx.createMediaStreamSource(this.stream);
+    this.node = new AudioWorkletNode(this.ctx, 'flip-grab');
+    this.node.port.onmessage = (e) => this._take(e.data);
+    const mute = this.ctx.createGain();
+    mute.gain.value = 0;  // keeps the audio flowing without playing your mic back to you
+    this.src.connect(this.node);
+    this.node.connect(mute);
+    mute.connect(this.ctx.destination);
+    await this.ctx.resume();
+    this.ready = true;
+  }
+
+  _take(samples) {
+    this.buf.push(samples);
+    this.size += samples.length;
+    const block = Math.round(this.ctx.sampleRate / 10);  // 100 ms
+    if (this.size < block) return;
+    const all = new Float32Array(this.size);
+    let at = 0;
+    for (const b of this.buf) { all.set(b, at); at += b.length; }
+    const used = Math.floor(all.length / block) * block;
+    this.buf = [all.slice(used)];
+    this.size = all.length - used;
+    const x = to16k(all.subarray(0, used), this.ctx.sampleRate);
+    const pcm = new Int16Array(x.length);
+    let sum = 0;
+    for (let i = 0; i < x.length; i++) {
+      const v = Math.max(-1, Math.min(1, x[i]));
+      pcm[i] = v * 32767;
+      sum += v * v;
+    }
+    this.level = Math.min(1, Math.sqrt(sum / x.length) * 12);
+    this.onchunk(pcm);
+  }
+
+  close() {
+    this.ready = false;
+    try { this.stream?.getTracks().forEach((t) => t.stop()); } catch (e) {}
+    try { this.ctx?.close(); } catch (e) {}
+  }
+}
+
+// 16 kHz audio for the speech detector: averages the samples that fall into each new one
+// (which also filters out the highs that would otherwise turn into noise).
+function to16k(x, rate) {
+  if (rate === 16000) return x;
+  const r = rate / 16000, n = Math.round(x.length / r), out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    if (r < 1) { out[i] = x[Math.min(x.length - 1, Math.floor(i * r))]; continue; }
+    const a = Math.floor(i * r), b = Math.min(x.length, Math.max(a + 1, Math.floor((i + 1) * r)));
+    let sum = 0;
+    for (let j = a; j < b; j++) sum += x[j];
+    out[i] = sum / (b - a);
+  }
+  return out;
+}
+
+function toBase64(int16) {
+  const bytes = new Uint8Array(int16.buffer, int16.byteOffset, int16.byteLength);
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+// The mic picked in Settings (by name), as this window knows it.
+async function pickedMic() {
+  let name = '';
+  try { name = (await api.mic_name() || '').toLowerCase(); } catch (e) {}
+  if (!name) return null;
+  const mics = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput' && d.label);
+  const m = mics.find((d) => d.label.toLowerCase().startsWith(name) || name.startsWith(d.label.toLowerCase()));
+  return m ? m.deviceId : null;
+}
+
+let callMic = null;
+let micError = '';
+let feeding = false;
+let unsent = [];
+let injected = [];  // speech the build's app test plays into the call
+let heardQueue = Promise.resolve();
+
+async function feedCall(pcm) {
+  if (injected.length) pcm = injected.shift();
+  unsent.push(pcm);
+  if (callMic && voiceOn && ['listening', 'excited'].includes(pet.state)) pet.level(callMic.level || 0);
+  if (feeding) return;
+  feeding = true;
+  while (unsent.length && voiceOn) {
+    const n = unsent.reduce((a, p) => a + p.length, 0);
+    const all = new Int16Array(n);
+    let at = 0;
+    for (const p of unsent) { all.set(p, at); at += p.length; }
+    unsent = [];
+    let r = null;
+    // while he's writing or talking it takes clearer speech to count, so echo and coughs don't cut him off
+    try { r = await api.voice_feed(toBase64(all), busy || speaker.active); } catch (e) {}
+    if (r && r.talking) youreTalking();
+  }
+  feeding = false;
+}
+
+// They started talking: if he's talking or still writing, he stops and listens.
+function youreTalking() {
+  if (busy || speaker.active) {
+    voiceStats.bargeIn = Date.now();
+    stopReply();
+  }
+  if (pet.state !== 'listening') setState('listening');
+}
+
+// Called from Python with what they said in the call.
+window.onHeard = (text) => {
+  heardQueue = heardQueue.then(async () => {
+    if (!voiceOn) return;
+    const until = Date.now() + 8000;
+    if (busy) stopReply();
+    while (busy && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+    if (voiceOn) await sendHeard(text);
+  });
+};
+
+function sendHeard(text) {
+  send(text);  // don't wait for his reply, so the next thing they say can cut in
+  return new Promise((r) => setTimeout(r, 50));
+}
+
+// Used by the build's app test: 16 kHz speech (base64) that goes into the call as if it came from the mic.
+window.injectSpeech = (b64) => {
+  const bin = atob(b64);
+  const all = new Int16Array(bin.length / 2);
+  for (let i = 0; i < all.length; i++) all[i] = (bin.charCodeAt(i * 2) | (bin.charCodeAt(i * 2 + 1) << 8)) << 16 >> 16;
+  for (let i = 0; i < all.length; i += 1600) injected.push(all.slice(i, i + 1600));
+};
+
 async function startVoice() {
-  if (!api || busy || voiceOn || !me) return;
+  if (!api || voiceOn || !me) return;
+  if (busy) stopReply();
   closeAll();
   voiceOn = true;
+  micError = '';
   api.voice_state(true);
   body.classList.add('voice');
   $('#cap-you').textContent = '';
   $('#cap-pet').textContent = pick(['yo, I\'m listening 👂', 'talk to me bro', 'what\'s good? I\'m all ears']);
   pet.wake();
+  setState('listening');
+  const r = await api.voice_call_start();
+  if (r.error) { voiceFailed(r.error); return; }
+  const mic = new Mic(feedCall);
+  try {
+    await mic.open();
+  } catch (e) {
+    mic.close();
+    micError = `${e.name || 'Error'}: ${e.message || e}`;
+    console.warn('Window mic failed, using Flip\'s own mic', micError);
+    api.voice_call_stop();
+    if (voiceOn) listenWithFlipsMic();
+    return;
+  }
+  if (!voiceOn) { mic.close(); return; }
+  callMic = mic;
+}
+
+// Backup: Flip listens with his own mic code (then you can't talk over him).
+async function listenWithFlipsMic() {
   while (voiceOn) {
+    if (busy) { await new Promise((r) => setTimeout(r, 200)); continue; }
     setState('listening');
     pollLevel(true);
     const r = await api.voice_listen();
     pollLevel(false);
     if (!voiceOn || r.ended) break;
-    if (r.error) { $('#cap-pet').textContent = r.error; setChatting(true); addMsg('pet', r.error, 'error'); break; }
+    if (r.error) { voiceFailed(r.error); return; }
     if (r.text) await send(r.text);
   }
+}
+
+function voiceFailed(error) {
+  $('#cap-pet').textContent = error;
+  setChatting(true);
+  addMsg('pet', error, 'error');
   endVoice();
 }
 
@@ -435,9 +711,14 @@ function endVoice() {
   voiceOn = false;
   api.voice_state(false);
   pollLevel(false);
+  if (callMic) { callMic.close(); callMic = null; }
+  unsent = [];
+  injected = [];
+  api.voice_call_stop();
   api.voice_cancel();
   if (busy) api.stop();
   stopSpeaking();
+  pet.level(0);
   body.classList.remove('voice');
   if (!busy) setState('idle');
 }
@@ -710,7 +991,7 @@ function currentSettings() {
 $('#voice-test').addEventListener('click', async () => {
   await api.save_settings(currentSettings());  // voice settings apply right away
   stopSpeaking();
-  speak(pick(['yo, it\'s me. how do I sound?', 'this is my voice, lowkey fire right?', 'testing, testing. I\'m ready to clutch.']));
+  speaker.say(pick(['yo, it\'s me. how do I sound?', 'this is my voice, lowkey fire right?', 'testing, testing. I\'m ready to clutch.']));
 });
 
 // ---------- storage ----------

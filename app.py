@@ -137,6 +137,44 @@ def see_through(window):
         log.exception("Couldn't make the pet window see-through")
 
 
+_mic_handlers = []  # keeps the permission handler alive
+
+
+def allow_mic(window):
+    """Lets the chat window use the mic without a popup (voice calls record through it, since the
+    browser's mic has echo cancellation: he doesn't hear himself and you can talk over him)."""
+    if sys.platform != "win32":
+        return
+    try:
+        from Microsoft.Web.WebView2.Core import CoreWebView2PermissionKind, CoreWebView2PermissionState
+
+        form = _native_form(window, timeout=60)
+        if form is None:
+            return
+
+        def on_permission(sender, args):
+            if args.PermissionKind == CoreWebView2PermissionKind.Microphone:
+                args.State = CoreWebView2PermissionState.Allow
+
+        _mic_handlers.append(on_permission)
+        attached = []
+
+        def attach():
+            core = form.browser.webview.CoreWebView2
+            if core is not None and not attached:
+                core.PermissionRequested += on_permission
+                attached.append(True)
+
+        deadline = time.time() + 60
+        while not attached and time.time() < deadline:
+            _on_ui_thread(form, attach)
+            if not attached:
+                time.sleep(0.3)
+        log.info("Mic permission handler %s", "ready" if attached else "never attached")
+    except Exception:
+        log.exception("Couldn't set up the mic permission")
+
+
 def dark_title_bar(window):
     """Windows draws a white title bar by default; ask for the dark one."""
     if sys.platform != "win32":
@@ -438,9 +476,6 @@ class Api:
 
     # ---------- voice ----------
 
-    def speech_parts(self, text):
-        return self._voice.speech_parts(text)
-
     def say(self, text):
         return self._voice.say(text)
 
@@ -470,8 +505,39 @@ class Api:
     def voice_cancel(self):
         self._voice.cancel_listening()
 
+    # Voice calls through the chat window's mic: it sends audio here, what they say comes back
+    # through onHeard(text).
+
+    def voice_call_start(self):
+        def heard(text):
+            if self._main:
+                self._main.evaluate_js(f"onHeard({json.dumps(text)})")
+
+        try:
+            self._voice.call_start(heard)
+            return {}
+        except Exception as e:
+            log.exception("Voice call couldn't start")
+            return {"error": f"my ears glitched 😵 ({e})"}
+
+    def voice_feed(self, pcm, speaking=False):
+        return self._voice.call_feed(pcm, bool(speaking))
+
+    def voice_call_stop(self):
+        self._voice.call_stop()
+
     def mic_level(self):
         return self._voice.level
+
+    def mic_name(self):
+        """The name of the mic picked in Settings ("" for the Windows default)."""
+        mic = self._settings.get("mic")
+        if mic is None:
+            return ""
+        try:
+            return next((m["name"] for m in list_mics() if m["id"] == mic), "")
+        except Exception:
+            return ""
 
     # ---------- desktop pet ----------
 
@@ -573,6 +639,7 @@ class Api:
 
     def _startup(self):
         threading.Thread(target=dark_title_bar, args=(self._main,), daemon=True).start()
+        threading.Thread(target=allow_mic, args=(self._main,), daemon=True).start()
         threading.Thread(target=storage.tidy_on_start, daemon=True).start()
         self._engine.start()
         threading.Thread(target=self._voice.preload, daemon=True).start()
@@ -621,6 +688,7 @@ class Api:
     def quit(self, close_main=True):
         self._quitting = True
         self._voice.cancel_listening()
+        self._voice.call_stop()
         self._engine.stop()
         if self._tray:
             self._tray.stop()

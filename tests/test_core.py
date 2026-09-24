@@ -1,3 +1,4 @@
+import base64
 import json
 import sys
 import threading
@@ -175,9 +176,31 @@ def test_utterance_detector():
     assert [a for f in quiet(1) + loud(0.1) + quiet(1.2) if (a := d.feed(f)) is not None] == []
 
 
-def test_speech_parts():
-    parts = voice.Voice({}).speech_parts("yo that was clean. Hi! You're actually cracked, ngl. Want tips for Ascent?")
-    assert parts == ["yo that was clean. Hi! You're actually cracked, ngl.", "Want tips for Ascent?"]
+def test_voice_call_hears_you_and_ignores_echo():
+    rng = np.random.default_rng(1)
+    t = np.arange(voice.FRAME) / voice.RATE
+    quiet = lambda sec: [rng.normal(0, 0.002, voice.FRAME).astype(np.float32) for _ in range(int(sec * voice.RATE / voice.FRAME))]
+    loud = lambda sec: [(0.2 * np.sin(2 * np.pi * 220 * t)).astype(np.float32) for _ in range(int(sec * voice.RATE / voice.FRAME))]
+    by_loudness = lambda f: min(1.0, float(np.sqrt(np.mean(f ** 2))) * 25)
+    pcm = lambda frames: base64.b64encode((np.concatenate(frames) * 32767).astype("<i2").tobytes()).decode()
+    heard = []
+    v = voice.Voice({})
+    v.transcribe = lambda audio, **k: f"{len(audio) / voice.RATE:.1f}s of talking"
+    v.call_start(heard.append, chance=by_loudness)
+    # while he's talking, a blip of leftover echo doesn't count as you talking…
+    assert v.call_feed(pcm(quiet(0.3) + loud(0.15)), speaking=True) == {"talking": False}
+    # …but when he's quiet, the same blip does
+    assert v.call_feed(pcm(quiet(0.3) + loud(0.15)))["talking"]
+    v.call_feed(pcm(quiet(1)))
+    # really talking over him is caught within a third of a second
+    assert v.call_feed(pcm(loud(0.33)), speaking=True)["talking"]
+    v.call_feed(pcm(loud(1) + quiet(0.8)), speaking=True)
+    deadline = time.time() + 5
+    while not heard and time.time() < deadline:
+        time.sleep(0.05)
+    assert len(heard) == 1 and heard[0].endswith("of talking")
+    v.call_stop()
+    assert v.call_feed(pcm(loud(1))) == {"talking": False}
 
 
 class FakeModel(BaseHTTPRequestHandler):

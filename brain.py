@@ -353,8 +353,9 @@ class Brain:
         prompt = text
         fast = bool(self.settings.get("fast_mode"))
         if voice:
-            prompt += ("\n\n(We're in a live voice call: answer in 1-2 short spoken sentences, "
-                       "no code blocks, lists or emojis unless I ask.)")
+            prompt += ("\n\n(We're in a live voice call and this was transcribed from my voice, so ignore missing "
+                       "punctuation. Talk back like on a call: 1-2 short spoken sentences, plain words only, "
+                       "no emojis, lists, code or markdown unless I ask.)")
         elif fast:
             prompt += "\n\n(Quick mode: keep it short, 1-2 sentences unless I ask for more.)"
         earlier = [m["content"] for m in history if m["role"] == "assistant"][-4:]
@@ -370,6 +371,7 @@ class Brain:
                                                         {"type": "image_url", "image_url": {"url": image}}]})
         else:
             history.append({"role": "user", "content": prompt})
+        limit = 160 if voice else 300 if fast else None
         started, first = time.time(), [None]
 
         def stream_text(piece):
@@ -382,13 +384,13 @@ class Brain:
         history, tools = self._fit(system, history, self._tools(topic))
         try:
             reply, stopped = self.backend.answer(system, history, tools, self._run_tool,
-                                                 stream_text, stop, max_tokens=300 if fast else None)
+                                                 stream_text, stop, max_tokens=limit)
         except Exception as e:
             if "exceed_context_size" not in str(e) and "context" not in str(e).lower():
                 raise
             log.warning("Still too long for the brain, retrying short: %s", e)  # guesses were off; go minimal
             reply, stopped = self.backend.answer(self._system(), history[-2:], list(MEMORY_TOOLS), self._run_tool,
-                                                 stream_text, stop, max_tokens=300 if fast else None)
+                                                 stream_text, stop, max_tokens=limit)
         if not stopped and reply and _repeats(reply, earlier):
             # Still said the same thing as before: throw it away and try again, told plainly this time.
             log.info("Reply repeated an earlier one, retrying: %s", reply[:80])
@@ -404,7 +406,7 @@ class Brain:
                 content += nudge
             retry = history[:-1] + [{"role": "user", "content": content}]
             reply, stopped = self.backend.answer(system, retry, tools, self._run_tool, stream_text, stop,
-                                                 max_tokens=300 if fast else None, temperature=1.0)
+                                                 max_tokens=limit, temperature=1.0)
         done = time.time()
         self.last_stats = {"secs": round(done - started, 1),
                            "first": round((first[0] or done) - started, 1)}

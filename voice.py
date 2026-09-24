@@ -15,9 +15,10 @@ log = logging.getLogger("flip")
 RATE = 16000
 CHUNK_SEC = 0.03
 
-# His voice runs on the PC (Kokoro): downloaded once (~120 MB), no internet needed after that.
+# His voice runs on the PC (Kokoro): downloaded once (~200 MB), no internet needed after that.
+# The fp16 model talks about 4x faster on a normal CPU than the smaller int8 one.
 VOICE_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
-VOICE_MODEL = "kokoro-v1.0.int8.onnx"
+VOICE_MODEL = "kokoro-v1.0.fp16.onnx"
 VOICE_STYLES = "voices-v1.0.bin"
 DEFAULT_VOICE = "am_fenrir"  # the youngest-sounding of the good male voices
 VOICES = {"am_fenrir": "Fenrir (young, default)", "am_puck": "Puck (playful)", "am_michael": "Michael (chill)",
@@ -80,7 +81,7 @@ class Ears:
 class UtteranceDetector:
     """Figures out when someone starts talking and when they've finished."""
 
-    def __init__(self, chance=None, end_silence=0.8, max_len=30.0):
+    def __init__(self, chance=None, end_silence=0.6, max_len=30.0):
         self.chance = chance or Ears().speech_chance
         frame_sec = FRAME / RATE
         self.end_frames = int(end_silence / frame_sec)
@@ -92,13 +93,14 @@ class UtteranceDetector:
         self.silent = 0
         self.said = 0
 
-    def feed(self, frame):
-        """Feed 512 samples at 16 kHz. Returns the finished utterance once they stop talking, else None."""
+    def feed(self, frame, strict=False):
+        """Feed 512 samples at 16 kHz. Returns the finished utterance once they stop talking, else None.
+        strict: he's talking right now, so it takes clearer, longer speech to count (leftover echo doesn't)."""
         p = self.chance(frame)
         if not self.talking:
             self.pre.append(frame)
-            self.voiced = self.voiced + 1 if p > 0.5 else 0
-            if self.voiced >= 3:  # about 0.1 s of real speech
+            self.voiced = self.voiced + 1 if p > (0.7 if strict else 0.5) else 0
+            if self.voiced >= (8 if strict else 3):  # about 0.25 s (or 0.1 s) of real speech
                 self.talking = True
                 self.speech = list(self.pre)
                 self.silent = 0
@@ -201,14 +203,14 @@ class Voice:
         n = int(len(audio) * RATE / self._rate)
         return np.interp(np.linspace(0, len(audio) - 1, n), np.arange(len(audio)), audio).astype(np.float32)
 
-    def transcribe(self, audio, trim_silence=False):
+    def transcribe(self, audio, trim_silence=False, quick=False):
         if len(audio) < RATE * 0.3:
             return ""
         peak = float(np.max(np.abs(audio)))
         if 0 < peak < 0.3:  # quiet mic: turn it up so speech-to-text hears it clearly
             audio = audio * min(8.0, 0.5 / peak)
         segments, _ = self._get_whisper().transcribe(
-            audio, language="en", beam_size=5, initial_prompt=", ".join(self.names + [HINT_WORDS]), condition_on_previous_text=False,
+            audio, language="en", beam_size=1 if quick else 5, initial_prompt=", ".join(self.names + [HINT_WORDS]), condition_on_previous_text=False,
             vad_filter=trim_silence, vad_parameters={"threshold": 0.3, "min_silence_duration_ms": 600},
         )
         text = " ".join(s.text.strip() for s in segments).strip()
@@ -268,6 +270,42 @@ class Voice:
     def cancel_listening(self):
         self._cancel.set()
 
+    # Voice calls through the chat window's mic (it has echo cancellation, so he doesn't hear himself
+    # and you can talk over him). The window sends 16 kHz audio here every 100 ms.
+
+    def call_start(self, on_heard, chance=None):
+        self._call = UtteranceDetector(chance, end_silence=0.55)
+        self._call_pending = np.zeros(0, dtype=np.float32)
+        self._on_heard = on_heard
+
+    def call_feed(self, pcm_b64, speaking=False):
+        """Returns {"talking": True} as soon as they start talking (so he can stop and listen)."""
+        call = getattr(self, "_call", None)
+        if call is None:
+            return {"talking": False}
+        audio = _decode_pcm(pcm_b64)
+        if len(audio):
+            self.level = min(1.0, float(np.sqrt(np.mean(audio ** 2))) * 12)
+        self._call_pending = np.concatenate([self._call_pending, audio])
+        while len(self._call_pending) >= FRAME:
+            frame, self._call_pending = self._call_pending[:FRAME], self._call_pending[FRAME:]
+            utterance = call.feed(frame, strict=speaking)
+            if utterance is not None:
+                threading.Thread(target=self._heard, args=(utterance,), daemon=True).start()
+        return {"talking": call.talking}
+
+    def _heard(self, audio):
+        try:
+            text = self.transcribe(audio, quick=True)
+            if text and getattr(self, "_call", None) is not None:
+                self._on_heard(text)
+        except Exception:
+            log.exception("Couldn't understand that")
+
+    def call_stop(self):
+        self._call = None
+        self.level = 0.0
+
     # ---------- mouth ----------
 
     def preload_mouth(self):
@@ -290,25 +328,18 @@ class Voice:
                     if not (folder / name).exists():
                         download(f"{VOICE_URL}/{name}", folder / name, lambda d, t: None)
                 self._kokoro = Kokoro(str(folder / VOICE_MODEL), str(folder / VOICE_STYLES))
+                for old in folder.glob("kokoro-*.onnx"):  # the slower voice older versions used
+                    if old.name != VOICE_MODEL:
+                        old.unlink(missing_ok=True)
             return self._kokoro
-
-    def speech_parts(self, text):
-        """The reply split into sentences, so he can start talking before the whole thing is ready."""
-        text = speakable(text)
-        parts, current = [], ""
-        for sentence in re.split(r"(?<=[.!?])\s+", text):
-            current = f"{current} {sentence}".strip()
-            if len(current) >= 40:  # tiny sentences ride along with the next one
-                parts.append(current)
-                current = ""
-        if current:
-            parts.append(current)
-        return parts
 
     def say(self, text):
         """One part of a reply as audio: {"audio": base64, "mime", "rate"}, or None (the app then
         uses the Windows voice). "rate" is how fast to play it; playing faster also raises the pitch,
         which is how the cute style works."""
+        text = speakable(text)
+        if not text:
+            return None
         pitch = PITCH.get(self._s.get("voice_style"), PITCH["cute"])
         speed = float(self._s.get("talk_speed") or 1.0)
         voice = self._s.get("voice") or DEFAULT_VOICE
@@ -338,6 +369,12 @@ class Voice:
         if not audio:
             raise RuntimeError("no audio")
         return bytes(audio)
+
+
+def _decode_pcm(pcm_b64):
+    """16-bit 16 kHz audio (base64) from the chat window → float samples."""
+    raw = base64.b64decode(pcm_b64) if pcm_b64 else b""
+    return np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
 
 
 def _wav_base64(samples, rate):
