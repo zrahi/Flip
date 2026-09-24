@@ -219,6 +219,15 @@ class FakeModel(BaseHTTPRequestHandler):
             self._chunk({"tool_calls": [{"index": 0, "function": {"arguments": json.dumps({"fact": "name is Marru"})}}]})
             self._chunk({"tool_calls": [{"index": 1, "id": "c2", "type": "function",
                                          "function": {"name": "run_code", "arguments": json.dumps({"command": "print(1)"})}}]})
+        elif isinstance(last["content"], str) and "repeat test" in last["content"]:
+            # a lazy brain: pastes its previous reply, unless told off
+            if "first try repeated" in last["content"]:
+                words = ["alright ", "fresh ", "answer ", "this ", "time"]
+            else:
+                prev = [m["content"] for m in body["messages"] if m["role"] == "assistant"][-1]
+                words = [prev]
+            for w in words:
+                self._chunk({"content": w})
         else:
             results = [m["content"] for m in body["messages"] if m["role"] == "tool"]
             words = ["<think>", "hmm", "</think>", "bet ", " | ".join(results)] if results else ["yo ", "what's ", "good"]
@@ -271,6 +280,12 @@ def test_brain_memory_tools_and_streaming():
     assert parts[0]["type"] == "text" and "Valorant" in parts[0]["text"]
     assert parts[1] == {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AAAA"}}
     assert store.load_chat("c0ffee")["messages"][-2]["content"] == "what's on my screen?"  # the picture isn't saved
+
+    resets = []
+    reply, _, _ = b.chat("c0ffee", "repeat test", on_reset=lambda: resets.append(1))
+    assert resets == [1] and reply == "alright fresh answer this time"  # the copy got thrown away
+    assert FakeModel.last["temperature"] == 1.0
+    assert FakeModel.last["dry_multiplier"] > 0
 
     FakeModel.slow = True  # the stop button
     stop = threading.Event()

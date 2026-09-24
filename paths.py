@@ -58,7 +58,7 @@ def save_settings(settings):
 
 # Built-in personalities from older versions. If the user's copy still matches one of these (they never
 # edited it), it gets replaced with the current one.
-OLD_PERSONALITIES = {"5972ed76d7f743c21d5b2aa53f2604ba223b31e514d0757a896a8231d54c4d02", "abef6351e80dae97bb00812ddda0568e0c4c60265c1c0d33ac409472316e8314", "d8461125a4037efd6146eb2656a6e3f58ebe5f2ff4e00009611c478131998f99"}
+OLD_PERSONALITIES = {"0b50b6e2053d1440abca7f95a61ff34d86195f3511ba27d238f8a53f9ba9e81c", "5972ed76d7f743c21d5b2aa53f2604ba223b31e514d0757a896a8231d54c4d02", "abef6351e80dae97bb00812ddda0568e0c4c60265c1c0d33ac409472316e8314", "d8461125a4037efd6146eb2656a6e3f58ebe5f2ff4e00009611c478131998f99"}
 
 
 def personality_file():

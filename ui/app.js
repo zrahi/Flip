@@ -181,6 +181,13 @@ window.onText = (piece) => {
   if (stick) toBottom();
 };
 
+// Called from Python when he throws away a reply that repeated an earlier one and tries again.
+window.onResetText = () => {
+  if (!stream) return;
+  stream.text = '';
+  stream.b.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+};
+
 // Called from Python when he uses a tool (memory, Roblox Studio…).
 window.onTool = (name) => {
   if (name === 'remember') { addNote('🧠 saved to memory'); return; }

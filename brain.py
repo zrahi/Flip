@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 import logging
 import threading
 import time
@@ -146,16 +147,18 @@ class LocalBackend:
         return [{"type": "function", "function": {"name": t["name"], "description": t["description"],
                                                   "parameters": t["schema"]}} for t in tools]
 
-    def _kwargs(self, messages, spec, max_tokens=None):
+    def _kwargs(self, messages, spec, max_tokens=None, temperature=0.7):
         kwargs = {"model": self._pick_model(), "messages": messages,
-                  # Qwen's recommended settings for chatting. presence_penalty stops him from
-                  # repeating the same openers and phrases over and over.
-                  "temperature": 0.7, "top_p": 0.8, "presence_penalty": 1.2,
+                  # Qwen's recommended settings for chatting.
+                  "temperature": temperature, "top_p": 0.8, "presence_penalty": 1.0,
                   "extra_body": {
                       # Qwen3 brains have a hidden "thinking" mode that writes a long essay before every
                       # answer. Turn it off: answers come way faster.
                       "chat_template_kwargs": {"enable_thinking": False},
                       "top_k": 20, "repeat_penalty": 1.05,
+                      # DRY: makes it costly to copy word sequences that are already anywhere in the chat,
+                      # so he can't paste his earlier replies again.
+                      "dry_multiplier": 0.8, "dry_base": 1.75, "dry_allowed_length": 3, "dry_penalty_last_n": -1,
                   }}
         if spec:
             kwargs["tools"] = spec
@@ -168,14 +171,14 @@ class LocalBackend:
         messages = [{"role": "system", "content": system}, {"role": "user", "content": "hi"}]
         self.client.chat.completions.create(**self._kwargs(messages, self._spec(tools), max_tokens=1))
 
-    def answer(self, system, history, tools, run_tool, on_text=None, stop=None, max_tokens=None):
+    def answer(self, system, history, tools, run_tool, on_text=None, stop=None, max_tokens=None, temperature=0.7):
         """Runs the model (and any tools it asks for). Streams text through on_text as it's written.
         Returns (reply, stopped)."""
         messages = [{"role": "system", "content": system}] + history
         spec = self._spec(tools)
         shown = ""
         for _ in range(MAX_TOOL_STEPS):
-            kwargs = self._kwargs(messages, spec, max_tokens)
+            kwargs = self._kwargs(messages, spec, max_tokens, temperature)
             kwargs["stream"] = True
             stream = self.client.chat.completions.create(**kwargs)
             text, calls = "", {}
@@ -221,6 +224,21 @@ class LocalBackend:
                 messages.append({"role": "tool", "tool_call_id": c["id"] or f"call_{i}",
                                  "content": run_tool(c["name"], args)})
         return clean_reply(shown) + "\n\nbro I did like 15 steps and got lost 😭 tell me to keep going", False
+
+
+def _repeats(reply, earlier):
+    """True if the reply is (nearly) one of his earlier replies, or starts the same way."""
+    import difflib
+
+    norm = lambda t: re.sub(r"[^a-z0-9 ]", "", t.lower()).strip()
+    r = norm(reply)
+    for e in earlier:
+        e = norm(e)
+        if not e:
+            continue
+        if difflib.SequenceMatcher(None, r, e).ratio() > 0.6 or (len(r) > 20 and r[:25] == e[:25]):
+            return True
+    return False
 
 
 def parse_skill(text):
@@ -328,7 +346,7 @@ class Brain:
             text = text[:MAX_TOOL_OUTPUT] + "\n...(cut off)"
         return text
 
-    def chat(self, chat_id, text, voice=False, on_text=None, stop=None, image=None, image_label=""):
+    def chat(self, chat_id, text, voice=False, on_text=None, stop=None, image=None, image_label="", on_reset=None):
         chat = store.load_chat(chat_id) or store.new_chat(chat_id)
         history = [{"role": m["role"], "content": m["content"]} for m in chat["messages"][-MAX_HISTORY:]]
         topic = " ".join(str(m["content"]) for m in history[-6:]) + " " + text
@@ -336,6 +354,12 @@ class Brain:
         if voice:
             prompt += ("\n\n(We're in a live voice call: answer in 1-2 short spoken sentences, "
                        "no code blocks, lists or emojis unless I ask.)")
+        earlier = [m["content"] for m in history if m["role"] == "assistant"][-4:]
+        if earlier:
+            # small brains love to paste their last reply again; a nudge right next to the message helps most
+            prompt += "\n\n(Reply to exactly this message. Don't reuse lines from your earlier replies, and don't open with \"Ayy\", \"Yo\" or my name.)"
+        if not image and re.search(r"\b(see|look at|seeing)\b.*\bscreen\b", text, re.I):
+            prompt += "\n\n(I'm not sharing my screen right now, so you can't see it. Tell me to hit the share screen button.)"
         if image:
             # a picture of what they're sharing right now; only the newest one is sent, to keep it quick
             prompt += f"\n\n(I'm sharing my screen with you: {image_label or 'my screen'}. The picture is what's on it right now.)"
@@ -363,6 +387,22 @@ class Brain:
             log.warning("Still too long for the brain, retrying short: %s", e)  # guesses were off; go minimal
             reply, stopped = self.backend.answer(self._system(), history[-2:], list(MEMORY_TOOLS), self._run_tool,
                                                  stream_text, stop, max_tokens=700 if fast else None)
+        if not stopped and reply and _repeats(reply, earlier):
+            # Still said the same thing as before: throw it away and try again, told plainly this time.
+            log.info("Reply repeated an earlier one, retrying: %s", reply[:80])
+            if on_reset:
+                on_reset()
+            last = history[-1]
+            nudge = (f"\n\n(Your first try repeated what you said earlier: \"{short(reply, 120)}\". "
+                     f"That's not allowed. Write a completely different reply that actually responds to: \"{text}\")")
+            content = last["content"]
+            if isinstance(content, list):
+                content = [dict(content[0], text=content[0]["text"] + nudge)] + content[1:]
+            else:
+                content += nudge
+            retry = history[:-1] + [{"role": "user", "content": content}]
+            reply, stopped = self.backend.answer(system, retry, tools, self._run_tool, stream_text, stop,
+                                                 max_tokens=700 if fast else None, temperature=1.0)
         done = time.time()
         self.last_stats = {"secs": round(done - started, 1),
                            "first": round((first[0] or done) - started, 1)}

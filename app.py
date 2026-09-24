@@ -239,6 +239,7 @@ class Api:
 
     def _enter(self, prof):
         store.use_profile(prof)
+        self._voice.names = [prof["name"], self._settings["name"]]  # so speech-to-text spells them right
         threading.Thread(target=self._warm_up, daemon=True).start()
         self._settings["last_profile"] = prof["id"]
         save_settings(self._settings)
@@ -307,8 +308,13 @@ class Api:
                 self._share = None
                 if self._main:
                     self._main.evaluate_js("onShareEnded()")
+        def on_reset():  # he's redoing a reply that repeated an earlier one
+            buf.clear()
+            if self._main:
+                self._main.evaluate_js("onResetText()")
+
         try:
-            reply, chat, stopped = self._brain.chat(chat_id, text, voice, on_text, self._stop, image, label)
+            reply, chat, stopped = self._brain.chat(chat_id, text, voice, on_text, self._stop, image, label, on_reset)
             flush()
             if self._pet is not None and (self._chat_hidden or voice) and not stopped:
                 self.pet_say(reply)
