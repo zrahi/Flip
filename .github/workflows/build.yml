@@ -1,4 +1,4 @@
-name: Build Flip.exe
+name: Build Flip
 
 on:
   push:
@@ -34,7 +34,7 @@ jobs:
         run: |
           "1.${{ github.run_number }}" | Out-File -Encoding ascii -NoNewline version.txt
           $pyiArgs = @(
-            "--noconfirm", "--onefile", "--windowed", "--name", "Flip", "--icon", "flip.ico",
+            "--noconfirm", "--windowed", "--name", "Flip", "--icon", "flip.ico",
             "--add-data", "ui;ui", "--add-data", "skills;skills", "--add-data", "version.txt;.", "--add-data", "personality.txt;.", "--add-data", "flip.ico;.",
             "--collect-all", "faster_whisper", "--collect-all", "ctranslate2", "--collect-all", "onnxruntime",
             "--collect-all", "webview", "--collect-data", "edge_tts", "--hidden-import", "mcp.client.stdio",
@@ -44,7 +44,7 @@ jobs:
             "app.py"
           )
           python -m PyInstaller @pyiArgs 2>&1 | Tee-Object -FilePath pyi.txt
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path dist\Flip.exe)) {
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path dist\Flip\Flip.exe)) {
             $tail = (Get-Content pyi.txt -Tail 25) -join ' // '
             Write-Output "::error title=PyInstaller failed::$tail"
             exit 1
@@ -54,14 +54,36 @@ jobs:
         shell: pwsh
         run: |
           $out = "$env:RUNNER_TEMP\selftest.txt"
-          $p = Start-Process -FilePath dist\Flip.exe -ArgumentList "--selftest", $out -Wait -PassThru
+          $p = Start-Process -FilePath dist\Flip\Flip.exe -ArgumentList "--selftest", $out -Wait -PassThru
           Get-Content $out
           $text = Get-Content $out -Raw
           if ($text -notmatch "DONE" -or $text -match "FAIL") {
             Write-Output "::error title=Flip.exe selftest failed::$(($text -split "`n" | Where-Object { $_ -match 'FAIL' }) -join ' // ')"
             throw "selftest failed"
           }
-          "Flip.exe size: {0:N0} MB" -f ((Get-Item dist\Flip.exe).Length / 1MB)
+          "Flip app size: {0:N0} MB" -f ((Get-ChildItem dist\Flip -Recurse | Measure-Object Length -Sum).Sum / 1MB)
+
+      - name: Build the installer (FlipSetup.exe)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          $env:FLIP_VERSION = "1.${{ github.run_number }}"
+          & $iscc installer.iss 2>&1 | Tee-Object -FilePath iscc.txt
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path dist\FlipSetup.exe)) {
+            Write-Output "::error title=Installer build failed::$((Get-Content iscc.txt -Tail 20) -join ' // ')"
+            exit 1
+          }
+          "FlipSetup.exe size: {0:N0} MB" -f ((Get-Item dist\FlipSetup.exe).Length / 1MB)
+
+      - name: Install it like a user would
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\FlipSetup.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/NOLAUNCH" -Wait -PassThru
+          $exe = "$env:LOCALAPPDATA\Programs\Flip\Flip.exe"
+          if ($p.ExitCode -ne 0 -or -not (Test-Path $exe)) { Write-Output "::error title=Install::installer exit $($p.ExitCode), Flip.exe there: $(Test-Path $exe)"; exit 1 }
+          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Flip.lnk")) { Write-Output "::error title=Install::no Start menu shortcut"; exit 1 }
+          Write-Output "::notice title=Install::installed to $exe"
 
       - name: Real brain test (downloads llama.cpp + a small seeing brain, chats, looks at a picture)
         env:
@@ -83,7 +105,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Flip
-          path: dist/Flip.exe
+          path: dist/FlipSetup.exe
 
       - name: Click through the whole real app (results + screenshots go to the ci-screens branch)
         shell: pwsh
@@ -95,7 +117,7 @@ jobs:
           Copy-Item -Recurse "$env:RUNNER_TEMP\flip-e2e\models" $env:FLIP_HOME -ErrorAction SilentlyContinue
           '{"local_model": "Qwen/Qwen3-VL-2B-Instruct-GGUF", "roblox_studio": false, "version": 3}' | Out-File -Encoding ascii "$env:FLIP_HOME\settings.json"
           $env:FLIP_AUTOTEST = "$env:RUNNER_TEMP\autotest"
-          $p = Start-Process -FilePath dist\Flip.exe -PassThru
+          $p = Start-Process -FilePath "$env:LOCALAPPDATA\Programs\Flip\Flip.exe" -PassThru
           if (-not $p.WaitForExit(2700000)) { $p.Kill(); Write-Output "::error title=Autotest::timed out" }
           $results = Get-Content "$env:FLIP_AUTOTEST\results.txt" -Raw -ErrorAction SilentlyContinue
           if (-not $results) { $results = "NO RESULTS`n" + ((Get-Content "$env:FLIP_HOME\flip.log" -Tail 40) -join "`n") }
@@ -114,11 +136,24 @@ jobs:
           git push -f origin ci-screens
           if ($results -notmatch "ALL PASSED") { throw "the app test failed" }
 
+      - name: Uninstall it and check it's gone
+        shell: pwsh
+        run: |
+          $app = "$env:LOCALAPPDATA\Programs\Flip"
+          Start-Process -FilePath "$app\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
+          $deadline = (Get-Date).AddSeconds(60)
+          while ((Test-Path "$app\Flip.exe") -and (Get-Date) -lt $deadline) { Start-Sleep 2 }
+          if (Test-Path "$app\Flip.exe") { Write-Output "::error title=Uninstall::Flip is still there"; exit 1 }
+          if (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Flip.lnk") { Write-Output "::error title=Uninstall::Start menu shortcut still there"; exit 1 }
+          Write-Output "::notice title=Uninstall::removed cleanly"
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          gh release create "v1.${{ github.run_number }}" dist/Flip.exe `
+          # "Flip.exe" is the same installer under the old name, so older Flip versions can update into it
+          Copy-Item dist\FlipSetup.exe dist\Flip.exe
+          gh release create "v1.${{ github.run_number }}" dist/FlipSetup.exe dist/Flip.exe `
             --title "Flip v1.${{ github.run_number }}" `
-            --notes "Download **Flip.exe** below and double-click it. First launch downloads his brain (a few GB, one time only)."
+            --notes "Download **FlipSetup.exe** below, run it once, and Flip is installed (desktop + Start menu). After that, updates come through the Update button in Flip."

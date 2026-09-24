@@ -310,7 +310,7 @@ def test_downloads_exist():
         found = engine.llama_download(kind)
         assert len(found) == parts, (kind, found)
         assert all(url.endswith(".zip") and size > 1e6 for url, size in found)
-    for repo in {r for _, r in engine.MODELS} | set(engine.FAST.values()):
+    for repo in {r for _, r in engine.MODELS} | {engine.LIGHT}:
         url, name, size = engine.model_download(repo)
         assert name.endswith(".gguf") and size > 5e8, (repo, name, size)
         eyes = engine.eyes_download(repo)

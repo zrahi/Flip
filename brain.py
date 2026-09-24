@@ -158,7 +158,7 @@ class LocalBackend:
                       "top_k": 20, "repeat_penalty": 1.05,
                       # DRY: makes it costly to copy word sequences that are already anywhere in the chat,
                       # so he can't paste his earlier replies again.
-                      "dry_multiplier": 0.8, "dry_base": 1.75, "dry_allowed_length": 3, "dry_penalty_last_n": -1,
+                      "dry_multiplier": 0.8, "dry_base": 1.75, "dry_allowed_length": 3, "dry_penalty_last_n": 8192,
                   }}
         if spec:
             kwargs["tools"] = spec
@@ -351,9 +351,12 @@ class Brain:
         history = [{"role": m["role"], "content": m["content"]} for m in chat["messages"][-MAX_HISTORY:]]
         topic = " ".join(str(m["content"]) for m in history[-6:]) + " " + text
         prompt = text
+        fast = bool(self.settings.get("fast_mode"))
         if voice:
             prompt += ("\n\n(We're in a live voice call: answer in 1-2 short spoken sentences, "
                        "no code blocks, lists or emojis unless I ask.)")
+        elif fast:
+            prompt += "\n\n(Quick mode: keep it short, 1-2 sentences unless I ask for more.)"
         earlier = [m["content"] for m in history if m["role"] == "assistant"][-4:]
         if earlier:
             # small brains love to paste their last reply again; a nudge right next to the message helps most
@@ -375,18 +378,17 @@ class Brain:
             if on_text:
                 on_text(piece)
 
-        fast = bool(self.settings.get("fast_mode"))
         system = self._system(topic)
         history, tools = self._fit(system, history, self._tools(topic))
         try:
             reply, stopped = self.backend.answer(system, history, tools, self._run_tool,
-                                                 stream_text, stop, max_tokens=700 if fast else None)
+                                                 stream_text, stop, max_tokens=300 if fast else None)
         except Exception as e:
             if "exceed_context_size" not in str(e) and "context" not in str(e).lower():
                 raise
             log.warning("Still too long for the brain, retrying short: %s", e)  # guesses were off; go minimal
             reply, stopped = self.backend.answer(self._system(), history[-2:], list(MEMORY_TOOLS), self._run_tool,
-                                                 stream_text, stop, max_tokens=700 if fast else None)
+                                                 stream_text, stop, max_tokens=300 if fast else None)
         if not stopped and reply and _repeats(reply, earlier):
             # Still said the same thing as before: throw it away and try again, told plainly this time.
             log.info("Reply repeated an earlier one, retrying: %s", reply[:80])
@@ -402,7 +404,7 @@ class Brain:
                 content += nudge
             retry = history[:-1] + [{"role": "user", "content": content}]
             reply, stopped = self.backend.answer(system, retry, tools, self._run_tool, stream_text, stop,
-                                                 max_tokens=700 if fast else None, temperature=1.0)
+                                                 max_tokens=300 if fast else None, temperature=1.0)
         done = time.time()
         self.last_stats = {"secs": round(done - started, 1),
                            "first": round((first[0] or done) - started, 1)}

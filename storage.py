@@ -79,13 +79,52 @@ def report():
             "total_gb": round(total / 1e9, 2), "freeable_gb": round(freeable / 1e9, 2)}
 
 
+def _old_temp_copies():
+    """The old single-file Flip.exe unpacked itself into Temp on every start (~0.4 GB each time), and
+    copies stayed behind when it was closed hard. Only Flip's own folders are touched."""
+    import tempfile
+
+    current = getattr(sys, "_MEIPASS", None)
+    found = []
+    for d in Path(tempfile.gettempdir()).glob("_MEI*"):
+        if str(d) != current and (d / "flip.ico").exists() and (d / "ui" / "pet.js").exists():
+            found.append(d)
+    return found
+
+
 def _leftovers():
-    found = list(DATA.glob("*.part")) + list(DATA.glob("*.zip")) + list((DATA / "models").glob("*.part"))
+    found = (list(DATA.glob("*.part")) + list(DATA.glob("*.zip")) + list((DATA / "models").glob("*.part"))
+             + list((DATA / "update").glob("*")) + _old_temp_copies())
     for log_name in ("brain.log",):
         f = DATA / log_name
         if f.exists() and f.stat().st_size > 5_000_000:
             found.append(f)
     return found
+
+
+def _remove_leftovers():
+    for f in _leftovers():
+        try:
+            if f.is_dir():
+                shutil.rmtree(f, ignore_errors=True)
+            elif f.suffix == ".log":
+                f.write_bytes(b"")
+            else:
+                f.unlink()
+        except OSError:
+            pass  # still in use; it'll go next time
+
+
+def tidy_on_start():
+    """Runs every time Flip starts: removes leftovers nobody needs (not half-finished downloads:
+    those get resumed)."""
+    try:
+        for d in _old_temp_copies() + _old_speech_dirs():
+            shutil.rmtree(d, ignore_errors=True)
+        for f in (DATA / "update").glob("*"):
+            f.unlink(missing_ok=True)
+    except Exception:
+        log.exception("Tidy-up failed")
 
 
 def clean_up():
@@ -113,14 +152,7 @@ def clean_up():
         for kind, folder in LLAMA_DIRS.items():
             if kind != running["kind"]:
                 shutil.rmtree(folder, ignore_errors=True)
-    for f in _leftovers():
-        try:
-            if f.suffix == ".log":
-                f.write_bytes(b"")
-            else:
-                f.unlink()
-        except OSError:
-            pass  # still open by the brain; it'll go next time
+    _remove_leftovers()
     for d in _old_speech_dirs():
         shutil.rmtree(d, ignore_errors=True)
     freed = round(max(0.0, before - report()["total_gb"]), 2)
@@ -129,13 +161,17 @@ def clean_up():
 
 
 def delete_everything(delete_app):
-    """After Flip closes, a small background command deletes Flip's folder (and the app itself if asked)."""
+    """After Flip closes, a small background command deletes Flip's folder (and uninstalls the app if asked)."""
     if sys.platform != "win32":
         shutil.rmtree(DATA, ignore_errors=True)
         return
-    targets = [f'rmdir /s /q "{DATA}"'] + [f'rmdir /s /q "{d}"' for d in _old_speech_dirs()]
+    targets = [f'rmdir /s /q "{DATA}"'] + [f'rmdir /s /q "{d}"' for d in _old_speech_dirs() + _old_temp_copies()]
     if delete_app and getattr(sys, "frozen", False):
-        targets.append(f'del /f /q "{sys.executable}"')
+        uninstaller = Path(sys.executable).parent / "unins000.exe"
+        if uninstaller.exists():  # installed with FlipSetup: use the real uninstaller
+            targets.append(f'"{uninstaller}" /VERYSILENT /SUPPRESSMSGBOXES')
+        else:
+            targets.append(f'del /f /q "{sys.executable}"')
     # wait a few seconds so Flip and its brain have fully closed, then delete
     script = "ping 127.0.0.1 -n 6 > nul & taskkill /F /IM llama-server.exe > nul 2>&1 & " + " & ".join(targets)
     subprocess.Popen(["cmd.exe", "/c", script], close_fds=True,

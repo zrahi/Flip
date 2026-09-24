@@ -32,11 +32,8 @@ MODELS = [
     (7, "Qwen/Qwen3-VL-8B-Instruct-GGUF"),
     (0, "Qwen/Qwen3-VL-4B-Instruct-GGUF"),
 ]
-# Fast mode: a smaller brain that answers much quicker.
-FAST = {
-    "Qwen/Qwen3-VL-8B-Instruct-GGUF": "Qwen/Qwen3-VL-4B-Instruct-GGUF",
-    "Qwen/Qwen3-VL-4B-Instruct-GGUF": "Qwen/Qwen3-VL-2B-Instruct-GGUF",
-}
+# "light" brain size: about half the space, a bit less smart.
+LIGHT = "Qwen/Qwen3-VL-4B-Instruct-GGUF"
 QUANTS = ("Q4_K_M", "Q4_K_S", "Q4_0", "Q8_0")  # first one a repo has wins
 EYES_QUANTS = ("Q8_0", "F16", "BF16")
 
@@ -193,10 +190,15 @@ class Engine:
         threading.Thread(target=self._run, daemon=True).start()
 
     def set_fast(self, on):
+        """Fast mode uses the same brain (no extra download); it just keeps replies short."""
         self._s["fast_mode"] = bool(on)
+        self.status = dict(self.status, fast=bool(on))
+
+    def switch_brain(self):
+        """After the brain size setting changes: load the other brain (the old one gets deleted)."""
         if self._s.get("llm_url"):
             return
-        self._set("loading", "switching brains…", "⚡ fast mode" if on else "🧠 smart mode")
+        self._set("loading", "switching brains…", "")
         threading.Thread(target=lambda: (self.stop(), self._run()), daemon=True).start()
 
     def _set(self, state, title, detail="", progress=None):
@@ -217,6 +219,7 @@ class Engine:
                 self._set("ready", "ready")  # using the user's own AI server (LM Studio, Ollama…)
                 return
             repo = self._pick_repo()
+            self._repo = repo
             self.model_name = short_name(repo)
             kinds = self._engine_kinds()
             model = self._ensure_model(repo)
@@ -257,7 +260,9 @@ class Engine:
                 main = pick_model(vram)
                 log.info("GPU memory %.1f GB, picked %s", vram, main)
                 self._s["auto_model"] = main
-        return FAST.get(main, main) if self._s.get("fast_mode") else main
+            if self._s.get("brain_size") == "light":
+                main = LIGHT
+        return main
 
     def _ensure_llama(self, kind):
         folder = LLAMA_DIRS[kind]
@@ -296,7 +301,7 @@ class Engine:
             index.setdefault(old["repo"], old["file"])
         except (OSError, ValueError, KeyError):
             pass
-        title = "downloading my fast brain ⚡" if self._s.get("fast_mode") else "downloading my brain 🧠"
+        title = "downloading my brain 🧠"
         name = index.get(repo)
         if not (name and (MODEL_DIR / name).exists()):
             self._set("downloading", title, "finding the best one for your PC…", None)
@@ -323,18 +328,26 @@ class Engine:
             index_file.write_text(json.dumps(index, indent=1))
         return MODEL_DIR / name
 
-    def _forget_old_brains(self):
-        """Brains from older Flip versions (that can't see) get deleted once the new one works."""
-        if self._s.get("local_model", "auto") != "auto":
-            return
-        current = {r for _, r in MODELS} | set(FAST.values())
+    def _forget_old_brains(self, keep_repo, keep_kind):
+        """Only one brain and one engine are kept: once this one works, every other one is deleted."""
+        import shutil
+
         index_file = MODEL_DIR / "models.json"
         try:
             index = json.loads(index_file.read_text())
         except (OSError, ValueError):
-            return
+            index = {}
+        for kind, folder in LLAMA_DIRS.items():
+            if kind != keep_kind and folder.exists():
+                shutil.rmtree(folder, ignore_errors=True)
+                log.info("Deleted the unused %s engine", kind)
+        keep_files = {index.get(keep_repo), index.get(keep_repo + "#eyes")}
+        for f in MODEL_DIR.glob("*.gguf*"):  # brains that aren't listed anywhere, or half-downloaded ones
+            if f.name not in keep_files:
+                f.unlink(missing_ok=True)
+                log.info("Deleted old brain file %s", f.name)
         for key, name in list(index.items()):
-            if key.split("#")[0] not in current:
+            if key.split("#")[0] != keep_repo:
                 if name:
                     (MODEL_DIR / name).unlink(missing_ok=True)
                 del index[key]
@@ -374,7 +387,7 @@ class Engine:
                         break  # this engine couldn't use the graphics card, try the next one
                     (DATA / "running.json").write_text(json.dumps({"kind": kind if gpu else "cpu", "model": model.name}))
                     self._set("ready", "ready")
-                    self._forget_old_brains()
+                    self._forget_old_brains(self._repo, kind if gpu else "vulkan")
                     return
                 time.sleep(1)
             self.stop()

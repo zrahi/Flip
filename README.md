@@ -4,14 +4,17 @@ Your own animated AI buddy that lives on your PC. Hype, funny, Gen Z, and a crac
 
 ## Get it
 
-1. Go to **[Releases](../../releases/latest)** and download **Flip.exe**.
-2. Double-click it.
+1. Go to **[Releases](../../releases/latest)** and download **FlipSetup.exe**.
+2. Run it. It installs Flip for you (no admin needed) and puts him on your desktop and Start menu.
    - If Windows says "Windows protected your PC", click **More info → Run anyway**. It shows up because the app isn't signed.
-3. The first time, he downloads his brain (a few GB, one time only). After that he starts right away and works offline, except for his voice.
+3. The first time, he downloads his brain (about 6 GB, one time only).
+4. After that, updates come through the green **⬆ Update** button in Flip.
+
+To remove him: Windows Settings → Apps → Installed apps → Flip → Uninstall. It asks whether to delete his brain and chats too.
 
 ## What he can do
 
-- **Chat** like ChatGPT or Claude. His replies type out word by word, and **■ stop** cuts him off. ⚡ **Fast** switches to a smaller brain that answers way quicker.
+- **Chat** like ChatGPT or Claude. His replies type out word by word, and **■ stop** cuts him off. ⚡ **Fast** gives short, quick replies.
 - **Voice chat**: tap the voice button next to the text box and just talk, like a phone call. Tap him to cut him off, and ✕ hangs up.
 - **Sidebar**: new chat, search, 📌 pinned chats, and rename or delete chats. Click the chat name at the top to rename it.
 - **Accounts + profiles**: log in with a username and password, then pick who's chatting. Every profile has its own chats and memory, plus an optional PIN.

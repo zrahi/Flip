@@ -41,7 +41,7 @@ class Updater:
         except Exception as e:
             log.warning("Update check failed: %s", e)
             return {"available": False, "current": self.version}
-        exe = next((a for a in release.get("assets", []) if a["name"].lower() == "flip.exe"), None)
+        exe = next((a for a in release.get("assets", []) if a["name"].lower() == "flipsetup.exe"), None)
         latest = release.get("tag_name", "")
         newer = bool(_parse(latest)) and (self.version == "dev" or _parse(latest) > _parse(self.version))
         self._latest = {"version": latest.lstrip("v"), "url": exe and exe["browser_download_url"],
@@ -62,30 +62,14 @@ class Updater:
 
         folder = DATA / "update"
         folder.mkdir(exist_ok=True)
-        new_exe = folder / "Flip.exe"
+        setup = folder / "FlipSetup.exe"
         try:
             self.status = {"state": "downloading", "progress": 0}
-            download(self._latest["url"], new_exe,
+            download(self._latest["url"], setup,
                      lambda d, t: self.__setattr__("status", {"state": "downloading", "progress": d / t if t else None}))
-            exe = sys.executable
-            # A little script that waits for this Flip to close, puts the new one in its place and starts it.
-            script = folder / "apply.bat"
-            script.write_text(
-                "@echo off\r\n"
-                "set tries=0\r\n"
-                ":again\r\n"
-                "ping 127.0.0.1 -n 2 > nul\r\n"
-                f'move /y "{new_exe}" "{exe}" > nul 2>&1\r\n'
-                "if errorlevel 1 (\r\n"
-                "  set /a tries+=1\r\n"
-                "  if %tries% lss 30 goto again\r\n"
-                "  exit /b 1\r\n"
-                ")\r\n"
-                f'start "" "{exe}"\r\n',
-                encoding="utf-8",
-            )
-            subprocess.Popen(["cmd.exe", "/c", str(script)], close_fds=True,
-                             creationflags=getattr(subprocess, "DETACHED_PROCESS", 0)
+            # The installer waits for Flip to close, swaps in the new version, then opens Flip again.
+            subprocess.Popen([str(setup), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"],
+                             close_fds=True, creationflags=getattr(subprocess, "DETACHED_PROCESS", 0)
                              | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
             self.status = {"state": "restarting", "progress": 1}
             log.info("Updating to %s", self._latest["version"])

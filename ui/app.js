@@ -674,6 +674,7 @@ async function openSettings() {
     s.mics.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
   $('#set-mic').value = s.mic == null ? '' : String(s.mic);
   $('#set-roblox').checked = !!s.roblox_studio;
+  $('#set-brain').value = s.brain_size || 'smart';
   $('#set-note').textContent = '';
   $('#pw-note').textContent = '';
   $('#clean-note').textContent = '';
@@ -685,8 +686,12 @@ async function openSettings() {
   openPanel('settings');
 }
 $('#set-save').addEventListener('click', async () => {
-  await api.save_settings(currentSettings());
+  const r = await api.save_settings(currentSettings());
   $('#set-note').textContent = 'saved ✓ voice changes work right away, the rest after you reopen me 🔁';
+  if (r && r.brain_switching) {
+    closeAll();
+    watchBrain();  // shows the download/switch progress; the old brain gets deleted after
+  }
 });
 $('#set-folder').addEventListener('click', () => api.open_folder());
 
@@ -699,6 +704,7 @@ function currentSettings() {
     talk_speed: parseFloat($('#set-speed').value),
     mic: mic === '' ? null : parseInt(mic, 10),
     roblox_studio: $('#set-roblox').checked,
+    brain_size: $('#set-brain').value,
   };
 }
 $('#voice-test').addEventListener('click', async () => {
@@ -758,14 +764,14 @@ function showFast(on, s = {}) {
   fast = !!on;
   $('#fast-btn').classList.toggle('on', fast);
   const info = s.model ? `\nbrain: ${s.model}${s.hardware ? ` on ${s.hardware}` : ''}` : '';
-  $('#fast-btn').title = (fast ? 'Fast mode is on: quicker, a bit less smart. Click for smart mode.'
-    : 'Fast mode: a smaller brain that answers way quicker') + info;
+  $('#fast-btn').title = (fast ? 'Quick replies are on: short answers that finish fast. Click for full replies.'
+    : 'Quick replies: shorter answers that finish faster (same brain, nothing to download)') + info;
 }
 $('#fast-btn').addEventListener('click', async () => {
   if (busy || voiceOn) return;
   const s = await api.set_fast(!fast);
-  showFast(s.fast);
-  watchBrain();
+  showFast(s.fast, s);
+  if (calm()) setState('idle', fast ? 'quick replies on ⚡' : 'full replies on 🧠');
 });
 
 // ---------- desktop pet ----------

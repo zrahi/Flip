@@ -391,7 +391,8 @@ class Api:
     # ---------- settings ----------
 
     def get_settings(self):
-        info = {k: self._settings.get(k) for k in ("name", "voice", "voice_style", "talk_speed", "mic", "roblox_studio")}
+        info = {k: self._settings.get(k) for k in ("name", "voice", "voice_style", "talk_speed", "mic", "roblox_studio",
+                                                   "brain_size")}
         info["voices"] = VOICES
         try:
             info["mics"] = list_mics()
@@ -401,11 +402,14 @@ class Api:
         return info
 
     def save_settings(self, changes):
-        for k in ("name", "voice", "voice_style", "talk_speed", "mic", "roblox_studio"):
+        new_brain = "brain_size" in changes and changes["brain_size"] != (self._settings.get("brain_size") or "smart")
+        for k in ("name", "voice", "voice_style", "talk_speed", "mic", "roblox_studio", "brain_size"):
             if k in changes:
                 self._settings[k] = changes[k]
         save_settings(self._settings)
-        return True
+        if new_brain:
+            self._engine.switch_brain()
+        return {"brain_switching": new_brain}
 
     def storage_report(self):
         return storage.report()
@@ -569,6 +573,7 @@ class Api:
 
     def _startup(self):
         threading.Thread(target=dark_title_bar, args=(self._main,), daemon=True).start()
+        threading.Thread(target=storage.tidy_on_start, daemon=True).start()
         self._engine.start()
         threading.Thread(target=self._voice.preload, daemon=True).start()
         self._start_tray()
