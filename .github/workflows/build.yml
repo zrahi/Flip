@@ -102,10 +102,11 @@ jobs:
           Get-Content "$env:FLIP_HOME\flip.log" -Tail 20 -ErrorAction SilentlyContinue
           if (-not (Test-Path $env:FLIP_SCREENSHOT)) { throw "no screenshot" }
           Copy-Item $env:FLIP_SCREENSHOT shot.png
+          Copy-Item "$env:FLIP_HOME\flip.log" flip-log.txt -ErrorAction SilentlyContinue
           git config user.name "flip-build"
           git config user.email "flip-build@users.noreply.github.com"
           git checkout --orphan ci-screens
           git reset -q
-          git add -f shot.png
+          git add -f shot.png flip-log.txt
           git commit -q -m "screenshot from build ${{ github.run_number }}"
           git push -f origin ci-screens

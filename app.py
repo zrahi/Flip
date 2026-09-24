@@ -72,27 +72,73 @@ def load_skills():
     return texts
 
 
+def _native_form(window, timeout=15):
+    """The Windows Forms window behind a pywebview window (waits until it exists)."""
+    from webview.platforms.winforms import BrowserView
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        form = BrowserView.instances.get(window.uid)
+        if form is not None:
+            try:
+                if form.IsHandleCreated and form.Visible:
+                    return form
+            except Exception:
+                pass
+        time.sleep(0.2)
+    return None
+
+
+def _on_ui_thread(form, fn):
+    from System import Func, Type
+
+    form.Invoke(Func[Type](fn))
+
+
 def see_through(window):
     """Makes the desktop pet's window background invisible (pywebview leaves it grey on Windows)."""
     if sys.platform != "win32":
         return
     try:
-        from System import Func, Type
         from System.Drawing import Color
-        from webview.platforms.winforms import BrowserView
 
-        form = BrowserView.instances.get(window.uid)
+        form = _native_form(window)
         if form is None:
+            log.warning("Pet window never showed up, can't make it see-through")
             return
 
         def apply():
             key = Color.FromArgb(255, 1, 1, 1)  # this exact color becomes see-through (and click-through)
             form.BackColor = key
             form.TransparencyKey = key
+            for control in form.Controls:
+                control.BackColor = key
 
-        form.Invoke(Func[Type](apply))
+        _on_ui_thread(form, apply)
+        log.info("Pet window is see-through")
     except Exception:
         log.exception("Couldn't make the pet window see-through")
+
+
+def dark_title_bar(window):
+    """Windows draws a white title bar by default; ask for the dark one."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        form = _native_form(window)
+        if form is None:
+            return
+        hwnd = form.Handle.ToInt64()
+        on = ctypes.c_int(1)
+        for attr in (20, 19):  # DWMWA_USE_IMMERSIVE_DARK_MODE (newer, then older Windows 10)
+            if ctypes.windll.dwmapi.DwmSetWindowAttribute(ctypes.c_void_p(hwnd), attr, ctypes.byref(on), 4) == 0:
+                break
+        # nudge the window so Windows repaints the title bar right away
+        _on_ui_thread(form, lambda: (setattr(form, "Width", form.Width + 1), setattr(form, "Width", form.Width - 1)))
+    except Exception:
+        log.exception("Couldn't make the title bar dark")
 
 
 class Api:
@@ -342,7 +388,8 @@ class Api:
                 resizable=False, easy_drag=True, background_color="#010101",
             )
             self._pet.events.closed += self._pet_closed
-            self._pet.events.shown += lambda: see_through(self._pet)
+            pet = self._pet
+            threading.Thread(target=see_through, args=(pet,), daemon=True).start()
         self._settings["pet_visible"] = True
         save_settings(self._settings)
         self._update_tray()
@@ -428,6 +475,7 @@ class Api:
         return True
 
     def _startup(self):
+        threading.Thread(target=dark_title_bar, args=(self._main,), daemon=True).start()
         self._engine.start()
         threading.Thread(target=self._voice.preload, daemon=True).start()
         self._start_tray()
