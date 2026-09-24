@@ -374,7 +374,8 @@ class Engine:
                     # reuses what it already read instead of starting over
                     "-np", "1"]
             if not gpu:
-                args += ["-ngl", "0"]
+                # on the processor only: leave a core free, or his ears (and talking over him) lag behind
+                args += ["-ngl", "0", "-t", str(max(1, (os.cpu_count() or 2) - 1))]
             self._proc = subprocess.Popen(
                 args, cwd=str(server.parent), stdout=log_file, stderr=subprocess.STDOUT,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),

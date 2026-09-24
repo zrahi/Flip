@@ -82,8 +82,8 @@ END_SLOW = 0.8
 FINAL_AFTER = 3        # frames of quiet (~0.1 s) before the final speech-to-text starts
 CAPTION_EVERY = 30     # frames of speech (~1 s) between live captions
 TRAILING = set("and but so or because cause like um uh the a an to of with if then my your our their is are was "
-               "were what how when where why who which should could would can do does did i you we they he she it "
-               "for on in at about from that this than as".split())
+               "were should could would can do does did i you we they he she it for on in at about from that this "
+               "than as".split())
 
 
 def sounds_finished(text):
@@ -91,6 +91,8 @@ def sounds_finished(text):
     t = text.strip()
     if not t or not t.endswith((".", "?", "!")) or t.endswith(("...", "…")):
         return False
+    if t.endswith("?"):  # a question is a question, even one ending in "why?" or "is it?"
+        return True
     last = re.sub(r"[^a-z']", "", t.split()[-1].lower())
     return last not in TRAILING
 

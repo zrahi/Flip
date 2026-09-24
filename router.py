@@ -21,7 +21,8 @@ VAL_WORDS = ["valorant", "valo", "spike", "planted", "defuse", "defusing", "eco 
              "platinum", "ranked", "rr", "credits", "clutch", "callout", "callouts", "crosshair", "heaven", "hookah",
              "a site", "b site", "c site", "a main", "b main", "mid", "rotate", "stack", "flank", "last guy",
              "buy or save", "save or buy", "eco", "force", "one tap", "peek", "peeking", "util", "utility",
-             "pistol", "pistol round", "save round", "plant", "rifle round", "full save"]
+             "pistol", "pistol round", "save round", "plant", "rifle round", "full save", "agent", "agents",
+             "ultimate", "abilities", "ability"]
 LIVE_WORDS = ["planted", "flank", "flanking", "last guy", "last one", "rotate", "rotating", "push", "pushing",
               "they're", "theyre", "enemy", "enemies", "we planted", "spike down", "heard", "saw", "spotted", "lit",
               "one shot", "tagged", "attack", "attacking", "defense", "defending", "credits", "save or buy",

@@ -384,7 +384,7 @@ class Brain:
                 notes.append(router.describe_match(chat["match"]))
         tags = set(way.tags)
         chosen = knowledge.pick(self.knowledge, text + " " + (recent[-600:] if way.kind != "chat" else ""), tags,
-                                budget=1000 if voice or way.kind == "live" else 5000) if tags or way.kind != "chat" else []
+                                budget=2500 if voice or way.kind == "live" else 5000) if tags or way.kind != "chat" else []
         low = (text + " " + recent[-300:]).lower()
         extra = [sk["text"] for sk in self.skills if sk["keywords"] != [""] and any(k in low for k in sk["keywords"])]
         if chosen or extra:
@@ -420,10 +420,12 @@ class Brain:
             history.append({"role": "user", "content": prompt})
         limit = way.max_tokens
         started, first = time.time(), [None]
+        self.last_times = {"request": started}  # filled in as it happens (the voice timing reads it mid-reply)
 
         def stream_text(piece):
             if first[0] is None:
                 first[0] = time.time()
+                self.last_times["first_token"] = first[0]
             if on_text:
                 on_text(piece)
 
@@ -456,7 +458,7 @@ class Brain:
             reply, stopped = self.backend.answer(system, retry, tools, self._run_tool, stream_text, stop,
                                                  max_tokens=limit, temperature=1.0)
         done = time.time()
-        self.last_times = {"request": started, "first_token": first[0] or done, "done": done}
+        self.last_times.update(first_token=first[0] or done, done=done)
         self.last_stats = {"secs": round(done - started, 1),
                            "first": round((first[0] or done) - started, 1), "kind": way.kind}
         usage.record(chat=1, think=int(way.think), kind=way.kind,

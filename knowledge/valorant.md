@@ -4,6 +4,8 @@
 KEYS: *valorant
 STATIC GAME KNOWLEDGE. Prices, damage and ability details get tuned in patches: if the user says something changed, trust them; if you're unsure of an exact current number, say so instead of guessing. If an agent, ability or map isn't in your notes, say you're not sure instead of making it up.
 - Rounds: 100 s. Spike blows 45 s after plant. Defuse 7 s; half (3.5 s) is saved if you let go. First to 13; at 12-12 overtime, win by 2.
+- The only agents: Jett, Reyna, Raze, Phoenix, Yoru, Neon, Iso, Waylay (duelists); Sova, Breach, Skye, KAY/O, Fade, Gekko, Tejo (initiators); Brimstone, Omen, Viper, Astra, Harbor, Clove (controllers); Sage, Cypher, Killjoy, Chamber, Deadlock, Vyse, Veto (sentinels). Any other name isn't a Valorant agent (Zenyatta, Mercy etc. are Overwatch).
+- The only guns: Classic, Shorty, Frenzy, Ghost, Sheriff, Stinger, Spectre, Bucky, Judge, Bulldog, Guardian, Phantom, Vandal, Marshal, Outlaw, Operator, Ares, Odin. No M4, AK, M416, P90, AWP (those are other games).
 - Roles: Duelist makes space and entries. Initiator gets info and flashes/stuns for the entry. Controller smokes sightlines (wins or loses executes). Sentinel holds a site or flank with traps/walls.
 - Pro habits: trade your teammate (stay close enough to kill his killer). Info before commitment. Don't re-peek the angle you just got a kill from. Use util before you swing, not after you die. Play for the round, not the kill.
 - Mechanics: stop before you shoot (counter-strafe). Crosshair at head height, pre-aimed where they'll appear. Tap/burst at range, spray close. Getting shot slows you (tagging). Shift-walk is silent; running, reloading and some util are loud.
