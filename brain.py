@@ -261,8 +261,8 @@ class Brain:
         try:
             self.backend.warm_up(self._system(), self._tools())
             log.info("Brain warmed up")
-        except Exception:
-            log.exception("Warm-up failed")
+        except Exception as e:  # e.g. the brain was restarting (fast mode switch); it's only a head start
+            log.warning("Warm-up skipped: %s", e)
 
     def roblox_status(self):
         return self.roblox.status if self.roblox else "off"

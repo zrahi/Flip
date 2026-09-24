@@ -161,11 +161,20 @@ class Voice:
     def _get_whisper(self):
         with self._whisper_lock:
             if self._whisper is None:
+                import shutil
+
                 from faster_whisper import WhisperModel
+                from faster_whisper.utils import download_model
 
                 from paths import DATA
-                self._whisper = WhisperModel(self._s.get("whisper_model") or "small.en", device="cpu",
-                                             compute_type="int8", download_root=str(DATA / "speech"))
+                size = self._s.get("whisper_model") or "small.en"
+                folder = DATA / "speech" / size
+                if not (folder / "model.bin").exists():
+                    # a plain folder: the default download kept a second copy of the model on Windows
+                    download_model(size, output_dir=str(folder))
+                self._whisper = WhisperModel(str(folder), device="cpu", compute_type="int8")
+                for old in (DATA / "speech").glob("models--*"):  # left over from older versions
+                    shutil.rmtree(old, ignore_errors=True)
             return self._whisper
 
     def _open_mic(self, on_audio, blocksize=0):
