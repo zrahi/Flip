@@ -214,8 +214,10 @@ def test_downloads_exist():
     assert engine.pick_model(24) == engine.MODELS[0][1]
     assert engine.pick_model(8) == engine.MODELS[1][1]
     assert engine.pick_model(0) == engine.MODELS[2][1]
-    url, size = engine.llama_download()
-    assert url.endswith(".zip") and size > 1e6
+    for kind, parts in (("vulkan", 1), ("cuda", 2)):
+        found = engine.llama_download(kind)
+        assert len(found) == parts, (kind, found)
+        assert all(url.endswith(".zip") and size > 1e6 for url, size in found)
     for repo in {r for _, r in engine.MODELS} | set(engine.FAST.values()):
         url, name, size = engine.model_download(repo)
         assert name.endswith(".gguf") and size > 1e9, (repo, name, size)
