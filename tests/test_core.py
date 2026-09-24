@@ -81,6 +81,34 @@ def test_chats_and_memory():
     assert store.forget(m["id"]) and store.memories() == []
 
 
+def test_storage_cleanup_keeps_what_is_in_use():
+    import json
+    import storage
+    from engine import LLAMA_DIRS, MODEL_DIR
+    from paths import DATA
+
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    (MODEL_DIR / "big.gguf").write_bytes(b"x" * 3000)
+    (MODEL_DIR / "small.gguf").write_bytes(b"x" * 1000)
+    (MODEL_DIR / "models.json").write_text(json.dumps({"org/Big-GGUF": "big.gguf", "org/Small-GGUF": "small.gguf"}))
+    for kind, folder in LLAMA_DIRS.items():
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "llama-server.exe").write_bytes(b"x" * 500)
+    (DATA / "llama-cuda-0.zip").write_bytes(b"x" * 200)  # unfinished download
+    (DATA / "running.json").write_text(json.dumps({"kind": "cuda", "model": "small.gguf"}))
+
+    r = storage.report()
+    assert any(i["what"] == "brain: Big" and not i["in_use"] for i in r["items"])
+    assert any(i["what"] == "brain: Small" and i["in_use"] for i in r["items"])
+    storage.clean_up()
+    assert not (MODEL_DIR / "big.gguf").exists() and (MODEL_DIR / "small.gguf").exists()
+    assert json.loads((MODEL_DIR / "models.json").read_text()) == {"org/Small-GGUF": "small.gguf"}
+    assert not LLAMA_DIRS["vulkan"].exists() and LLAMA_DIRS["cuda"].exists()
+    assert not (DATA / "llama-cuda-0.zip").exists()
+    for f in (MODEL_DIR / "small.gguf", MODEL_DIR / "models.json", DATA / "running.json"):
+        f.unlink()
+
+
 def test_speakable():
     s = voice.speakable("yo 🔥 **bet**:\n```lua\nprint(1)\n```\nsee https://x.com fr 😭")
     assert s == "yo bet: I dropped the code in the chat. see the link fr"

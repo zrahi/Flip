@@ -23,7 +23,7 @@ def selftest(out_path):
     """Used by the build: checks that everything Flip needs made it into the .exe."""
     lines = []
     for mod in ("webview", "clr", "openai", "mcp", "mcp.client.stdio", "faster_whisper", "ctranslate2", "onnxruntime", "numpy",
-                "sounddevice", "edge_tts", "pystray", "PIL", "brain", "engine", "voice", "store"):
+                "sounddevice", "edge_tts", "pystray", "PIL", "brain", "engine", "voice", "store", "storage"):
         try:
             __import__(mod)
             lines.append(f"ok {mod}")
@@ -54,6 +54,7 @@ if len(sys.argv) > 2 and sys.argv[1] == "--selftest":
 import webview  # noqa: E402
 from openai import APIConnectionError, APIStatusError  # noqa: E402
 
+import storage  # noqa: E402
 import store  # noqa: E402
 from brain import Brain, NoModelError  # noqa: E402
 from engine import Engine  # noqa: E402
@@ -345,6 +346,19 @@ class Api:
             if k in changes:
                 self._settings[k] = changes[k]
         save_settings(self._settings)
+        return True
+
+    def storage_report(self):
+        return storage.report()
+
+    def clean_up(self):
+        freed = storage.clean_up()
+        return {"freed_gb": freed, "report": storage.report()}
+
+    def delete_everything(self, delete_app=False):
+        self._engine.stop()
+        storage.delete_everything(bool(delete_app))
+        threading.Timer(0.5, self.quit).start()
         return True
 
     def open_folder(self):

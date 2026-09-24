@@ -103,7 +103,10 @@ class Voice:
         with self._whisper_lock:
             if self._whisper is None:
                 from faster_whisper import WhisperModel
-                self._whisper = WhisperModel(self._s.get("whisper_model", "base.en"), device="cpu", compute_type="int8")
+
+                from paths import DATA
+                self._whisper = WhisperModel(self._s.get("whisper_model", "base.en"), device="cpu", compute_type="int8",
+                                             download_root=str(DATA / "speech"))
             return self._whisper
 
     def _open_mic(self, on_audio, blocksize=0):

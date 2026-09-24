@@ -178,6 +178,18 @@
       </label>
       <div class="set-actions"><button id="pw-save">change password</button></div>
       <p id="pw-note" class="hint"></p>
+      <div class="sep"></div>
+      <div class="storage">
+        <div class="storage-head"><span>Storage</span><span id="storage-total" class="muted"></span></div>
+        <div id="storage-list"></div>
+        <p class="hint small">Clean up deletes the brain and engine you're not using right now (they download again if you switch), plus unfinished downloads and old logs.</p>
+        <div class="set-actions"><button id="clean-btn">🧹 Clean up</button></div>
+        <p id="clean-note" class="hint"></p>
+      </div>
+      <div class="danger-row">
+        <label class="check small-check"><input type="checkbox" id="del-app" checked> also delete Flip.exe</label>
+        <button id="delete-all" class="danger">Delete Flip &amp; everything</button>
+      </div>
     </div>
   </section>
 

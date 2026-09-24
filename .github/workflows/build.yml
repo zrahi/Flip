@@ -73,7 +73,7 @@ jobs:
             if (Test-Path "$env:TEMP") { Get-ChildItem $env:TEMP -Filter brain.log -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $b = (Get-Content $_.FullName -Tail 15) -join ' // '; Write-Output "::error title=brain.log::$b" } }
             exit 1
           }
-          Select-String -Path e2e.txt -Pattern "REPLY|hardware" | ForEach-Object { Write-Output "::notice title=Brain speed::$($_.Line)" }
+          Select-String -Path e2e.txt -Pattern "^REPLY|^hardware:" | ForEach-Object { Write-Output "::notice title=Brain speed::$($_.Line)" }
           Get-ChildItem $env:TEMP -Filter brain.log -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Select-String -Path $_.FullName -Pattern "prompt eval time|cache" | Select-Object -Last 6 | ForEach-Object { Write-Output "::notice title=brain.log::$($_.Line)" } }
 
       - uses: actions/upload-artifact@v4

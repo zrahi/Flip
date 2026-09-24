@@ -643,6 +643,8 @@ async function openSettings() {
   $('#set-roblox').checked = !!s.roblox_studio;
   $('#set-note').textContent = '';
   $('#pw-note').textContent = '';
+  $('#clean-note').textContent = '';
+  api.storage_report().then(renderStorage);
   const b = await api.brain_status();
   $('#brain-info').textContent = b.model
     ? `brain: ${b.model}${b.fast ? ' (fast mode)' : ''}${b.hardware ? ` · running on ${b.hardware}` : ''}` : '';
@@ -658,6 +660,41 @@ $('#set-save').addEventListener('click', async () => {
   $('#set-note').textContent = 'saved ✓ voice changes work right away, the rest after you reopen me 🔁';
 });
 $('#set-folder').addEventListener('click', () => api.open_folder());
+
+// ---------- storage ----------
+
+function renderStorage(r) {
+  $('#storage-total').textContent = `${r.total_gb} GB total`;
+  const list = $('#storage-list');
+  list.innerHTML = '';
+  for (const it of r.items) {
+    const row = document.createElement('div');
+    row.className = 'st-row' + (it.in_use ? '' : ' unused');
+    row.innerHTML = '<span><span class="w"></span><span class="tag"></span></span><span class="gb"></span>';
+    row.querySelector('.w').textContent = it.what;
+    row.querySelector('.tag').textContent = it.in_use ? 'in use' : '';
+    row.querySelector('.gb').textContent = it.gb >= 0.1 ? `${it.gb} GB` : '< 0.1 GB';
+    list.appendChild(row);
+  }
+  $('#clean-btn').textContent = r.freeable_gb > 0 ? `🧹 Clean up (frees ${r.freeable_gb} GB)` : '🧹 Clean up';
+}
+
+$('#clean-btn').addEventListener('click', async () => {
+  $('#clean-btn').disabled = true;
+  $('#clean-note').textContent = 'cleaning…';
+  const r = await api.clean_up();
+  $('#clean-btn').disabled = false;
+  $('#clean-note').textContent = r.freed_gb > 0 ? `freed ${r.freed_gb} GB 🧹✨` : 'already squeaky clean ✨';
+  renderStorage(r.report);
+});
+
+$('#delete-all').addEventListener('click', async () => {
+  const app = $('#del-app').checked;
+  if (!confirm(`Delete ALL of Flip's stuff on this PC?\n\nHis brains, every account, profile, chat and memory${app ? ', and Flip.exe itself' : ''}. This can't be undone.`)) return;
+  if (!confirm('Last chance: really delete everything? 😢')) return;
+  setState('sleeping', 'bye bye 👋');
+  await api.delete_everything(app);
+});
 $('#pw-save').addEventListener('click', async () => {
   const r = await api.change_password($('#pw-old').value, $('#pw-new').value);
   $('#pw-note').textContent = r.error || 'password changed ✓';
