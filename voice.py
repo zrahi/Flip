@@ -6,6 +6,7 @@ import logging
 import queue
 import re
 import threading
+import time
 from collections import deque
 
 import numpy as np
@@ -92,6 +93,7 @@ class UtteranceDetector:
         self.voiced = 0
         self.silent = 0
         self.said = 0
+        self.last_said = 0
 
     def feed(self, frame, strict=False):
         """Feed 512 samples at 16 kHz. Returns the finished utterance once they stop talking, else None.
@@ -114,6 +116,7 @@ class UtteranceDetector:
             self.silent += 1
         if self.silent >= self.end_frames or len(self.speech) >= self.max_frames:
             audio, said = np.concatenate(self.speech), self.said
+            self.last_said = said
             self.talking = False
             self.voiced = self.silent = self.said = 0
             self.speech = []
@@ -143,6 +146,7 @@ class Voice:
         self._s = settings
         self._whisper = None
         self._whisper_lock = threading.Lock()
+        self._ears_lock = threading.Lock()  # one speech-to-text run at a time
         self._stream = None
         self._frames = []
         self._rate = RATE
@@ -175,7 +179,7 @@ class Voice:
                 if not (folder / "model.bin").exists():
                     # a plain folder: the default download kept a second copy of the model on Windows
                     download_model(size, output_dir=str(folder))
-                self._whisper = WhisperModel(str(folder), device="cpu", compute_type="int8")
+                self._whisper = WhisperModel(str(folder), device="cpu", compute_type="int8", cpu_threads=_threads())
                 for old in (DATA / "speech").glob("models--*"):  # left over from older versions
                     shutil.rmtree(old, ignore_errors=True)
             return self._whisper
@@ -204,16 +208,34 @@ class Voice:
         return np.interp(np.linspace(0, len(audio) - 1, n), np.arange(len(audio)), audio).astype(np.float32)
 
     def transcribe(self, audio, trim_silence=False, quick=False):
+        """quick (voice calls): greedy, and only looks at a window as long as the clip instead of the
+        usual 30 s, which is most of the work for short sentences."""
         if len(audio) < RATE * 0.3:
             return ""
+        started = time.time()
         peak = float(np.max(np.abs(audio)))
         if 0 < peak < 0.3:  # quiet mic: turn it up so speech-to-text hears it clearly
             audio = audio * min(8.0, 0.5 / peak)
-        segments, _ = self._get_whisper().transcribe(
-            audio, language="en", beam_size=1 if quick else 5, initial_prompt=", ".join(self.names + [HINT_WORDS]), condition_on_previous_text=False,
-            vad_filter=trim_silence, vad_parameters={"threshold": 0.3, "min_silence_duration_ms": 600},
-        )
-        text = " ".join(s.text.strip() for s in segments).strip()
+        window = max(4, min(30, int(len(audio) / RATE) + 2)) if quick else 30
+
+        def run(window):
+            segments, _ = self._get_whisper().transcribe(
+                audio, language="en", beam_size=1 if quick else 5, initial_prompt=", ".join(self.names + [HINT_WORDS]),
+                condition_on_previous_text=False, without_timestamps=quick, chunk_length=window,
+                vad_filter=trim_silence, vad_parameters={"threshold": 0.3, "min_silence_duration_ms": 600},
+            )
+            return " ".join(s.text.strip() for s in segments).strip()
+
+        try:
+            text = run(window)
+        except Exception:
+            if window == 30:
+                raise
+            log.exception("Short-window speech-to-text failed, using the full window")
+            window = 30
+            text = run(window)
+        self.last_stt = {"audio": round(len(audio) / RATE, 1), "secs": round(time.time() - started, 2), "window": window}
+        log.info("Heard %.1fs of audio in %.2fs (window %ss)", len(audio) / RATE, time.time() - started, window)
         return "" if text.lower().strip(" .!?") in NOISE_WORDS else text
 
     # Click-to-talk: record until stop_listening() is called.
@@ -273,13 +295,19 @@ class Voice:
     # Voice calls through the chat window's mic (it has echo cancellation, so he doesn't hear himself
     # and you can talk over him). The window sends 16 kHz audio here every 100 ms.
 
-    def call_start(self, on_heard, chance=None):
-        self._call = UtteranceDetector(chance, end_silence=0.55)
+    def call_start(self, on_heard, chance=None, on_partial=None):
+        self._call = UtteranceDetector(chance, end_silence=0.45)
         self._call_pending = np.zeros(0, dtype=np.float32)
         self._on_heard = on_heard
+        self._on_partial = on_partial
+        self._utt = 0            # which thing they're saying (goes up each time they start talking)
+        self._was_talking = False
+        self._job = None         # the newest speech-to-text run for what they're saying right now
 
     def call_feed(self, pcm_b64, speaking=False):
-        """Returns {"talking": True} as soon as they start talking (so he can stop and listen)."""
+        """Returns {"talking": True} as soon as they start talking (so he can stop and listen).
+        While they talk, what they've said so far gets written out in the background, so by the
+        time they stop it's (nearly) done."""
         call = getattr(self, "_call", None)
         if call is None:
             return {"talking": False}
@@ -290,13 +318,54 @@ class Voice:
         while len(self._call_pending) >= FRAME:
             frame, self._call_pending = self._call_pending[:FRAME], self._call_pending[FRAME:]
             utterance = call.feed(frame, strict=speaking)
+            if call.talking and not self._was_talking:
+                self._utt += 1
+                self._job = None
+            self._was_talking = call.talking
             if utterance is not None:
-                threading.Thread(target=self._heard, args=(utterance,), daemon=True).start()
+                job, self._job = self._job, None
+                if job and job["utt"] == self._utt and job["said"] == call.last_said:
+                    # nothing new since that run started: its text is the answer
+                    threading.Thread(target=self._deliver, args=(job,), daemon=True).start()
+                else:
+                    threading.Thread(target=self._heard, args=(utterance,), daemon=True).start()
+        if call.talking:
+            job = self._job
+            if call.silent >= 5 and not (job and job["said"] == call.said):
+                self._run_job(call, wait=True)  # they just paused: get it ready for when they're done
+            elif call.silent == 0 and call.said - (job["said"] if job else 0) >= 25:
+                self._run_job(call, wait=False)  # still talking: update the live caption
         return {"talking": call.talking}
+
+    def _run_job(self, call, wait):
+        if not wait and self._ears_lock.locked():
+            return
+        job = {"utt": self._utt, "said": call.said, "done": threading.Event(), "text": ""}
+        audio = np.concatenate(call.speech)
+        self._job = job
+
+        def run():
+            with self._ears_lock:
+                try:
+                    job["text"] = self.transcribe(audio, quick=True)
+                except Exception:
+                    log.exception("Couldn't understand that")
+            job["done"].set()
+            c = self._call
+            if job["text"] and c is not None and c.talking and self._utt == job["utt"] and self._on_partial:
+                self._on_partial(job["text"])
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _deliver(self, job):
+        job["done"].wait(20)
+        if job["text"] and getattr(self, "_call", None) is not None:
+            self._on_heard(job["text"])
 
     def _heard(self, audio):
         try:
-            text = self.transcribe(audio, quick=True)
+            with self._ears_lock:
+                text = self.transcribe(audio, quick=True)
             if text and getattr(self, "_call", None) is not None:
                 self._on_heard(text)
         except Exception:
@@ -369,6 +438,13 @@ class Voice:
         if not audio:
             raise RuntimeError("no audio")
         return bytes(audio)
+
+
+def _threads():
+    """Speech-to-text threads: the real cores (it defaults to 4)."""
+    import os
+
+    return max(4, min(8, (os.cpu_count() or 8) // 2))
 
 
 def _decode_pcm(pcm_b64):

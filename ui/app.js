@@ -281,11 +281,16 @@ function findCut(s, first) {
     const end = m.index + m[0].length;
     if (s.slice(0, end).trim().length >= (first ? 1 : 40)) return end;
   }
-  const soft = first ? 40 : 110;
+  const soft = first ? 12 : 110;
   const comma = /[,;:–—]\s+|\s-\s/g;
   while ((m = comma.exec(s))) {
     const end = m.index + m[0].length;
     if (end >= soft) return end;
+  }
+  if (first) {  // no punctuation yet: say the first few words right away instead of waiting
+    const words = /\S+\s+/g;
+    let n = 0;
+    while ((m = words.exec(s))) if (++n >= 5 && m.index + m[0].length >= 24) return m.index + m[0].length;
   }
   return 0;
 }
@@ -634,6 +639,13 @@ function youreTalking() {
   }
   if (pet.state !== 'listening') setState('listening');
 }
+
+// Called from Python while they're still talking: what it's understood so far.
+window.onHearing = (text) => {
+  if (!voiceOn) return;
+  $('#cap-you').textContent = `“${text}…”`;
+  if (!busy) $('#cap-pet').textContent = '';
+};
 
 // Called from Python with what they said in the call.
 window.onHeard = (text) => {

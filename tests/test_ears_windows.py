@@ -31,8 +31,11 @@ def test_ears_catch_and_understand_speech(tmp_path):
         det = voice.UtteranceDetector()
         caught = [u for i in range(0, len(audio) - 511, 512) if (u := det.feed(audio[i:i + 512])) is not None]
         assert len(caught) == 1, (gain, len(caught))
-        text = v.transcribe(caught[0]).lower()
-        print(gain, "heard:", text)
-        words = ["hey", "flip", "how", "do", "play", "jett", "on", "ascent"]
-        heard = [w for w in words if w in text]
-        assert "jett" in text and len(heard) >= 6, (text, heard)
+        for quick in (False, True):  # quick: how voice calls do it (short window, greedy)
+            text = v.transcribe(caught[0], quick=quick).lower()
+            print(gain, quick, "heard:", text, v.last_stt)
+            words = ["hey", "flip", "how", "do", "play", "jett", "on", "ascent"]
+            heard = [w for w in words if w in text]
+            assert "jett" in text and len(heard) >= 6, (quick, text, heard)
+            if quick:
+                assert v.last_stt["window"] < 30, v.last_stt  # the short window really worked

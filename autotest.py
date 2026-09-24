@@ -189,8 +189,8 @@ def run(api):
         # more than one sentence: the first one has to go to his voice before he's done writing
         if re.search(r"[.!?]\s+\w", r["text"]) and not (stats.get("firstSay") and stats["firstSay"] < stats["replyDone"]):
             raise Failed(f"he only started talking after he finished typing: {stats}")
-        return (f"heard {heard!r} → {r['text'][:90]!r} | first words to his voice after {secs('firstSay')}s, "
-                f"reply written after {secs('replyDone')}s")
+        return (f"heard {heard!r} → {r['text'][:90]!r} | speech-to-text {getattr(api._voice, 'last_stt', None)} | "
+                f"first words to his voice after {secs('firstSay')}s, reply written after {secs('replyDone')}s")
     step("voice call: hears me, talks while typing", voice_call)
 
     def talk_over_him():

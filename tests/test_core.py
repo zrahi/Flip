@@ -203,6 +203,37 @@ def test_voice_call_hears_you_and_ignores_echo():
     assert v.call_feed(pcm(loud(1))) == {"talking": False}
 
 
+def test_voice_call_understands_while_you_talk():
+    rng = np.random.default_rng(2)
+    t = np.arange(voice.FRAME) / voice.RATE
+    quiet = lambda sec: [rng.normal(0, 0.002, voice.FRAME).astype(np.float32) for _ in range(int(sec * voice.RATE / voice.FRAME))]
+    loud = lambda sec: [(0.2 * np.sin(2 * np.pi * 220 * t)).astype(np.float32) for _ in range(int(sec * voice.RATE / voice.FRAME))]
+    by_loudness = lambda f: min(1.0, float(np.sqrt(np.mean(f ** 2))) * 25)
+    pcm = lambda frames: base64.b64encode((np.concatenate(frames) * 32767).astype("<i2").tobytes()).decode()
+    runs, heard, partial = [], [], []
+    v = voice.Voice({})
+
+    def transcribe(audio, **k):
+        runs.append(len(audio))
+        time.sleep(0.05)
+        return f"words {len(runs)}"
+
+    v.transcribe = transcribe
+    v.call_start(heard.append, chance=by_loudness, on_partial=partial.append)
+    frames = quiet(0.5) + loud(2.5) + quiet(1)
+    for i in range(0, len(frames), 3):  # like the window: ~100 ms at a time
+        v.call_feed(pcm(frames[i:i + 3]))
+        time.sleep(0.02)
+    deadline = time.time() + 5
+    while not heard and time.time() < deadline:
+        time.sleep(0.05)
+    assert partial, "no live caption while talking"
+    assert len(heard) == 1
+    # the run that started when they paused is the answer: no extra run after they finished
+    assert heard[0] == f"words {len(runs)}"
+    assert runs[-1] < voice.RATE * 3.4
+
+
 class FakeModel(BaseHTTPRequestHandler):
     """Acts like the AI server: first asks to use tools, then streams an answer word by word."""
 

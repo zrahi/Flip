@@ -513,8 +513,12 @@ class Api:
             if self._main:
                 self._main.evaluate_js(f"onHeard({json.dumps(text)})")
 
+        def hearing(text):  # what they've said so far, while they're still talking
+            if self._main:
+                self._main.evaluate_js(f"onHearing({json.dumps(text)})")
+
         try:
-            self._voice.call_start(heard)
+            self._voice.call_start(heard, on_partial=hearing)
             return {}
         except Exception as e:
             log.exception("Voice call couldn't start")
