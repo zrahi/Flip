@@ -8,6 +8,7 @@ from pathlib import Path
 os.environ["FLIP_HOME"] = tempfile.mkdtemp(prefix="flip-e2e-")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import store  # noqa: E402
 from brain import Brain  # noqa: E402
 from engine import Engine  # noqa: E402
 
@@ -26,6 +27,7 @@ while time.time() < deadline:
     time.sleep(2)
 assert engine.status["state"] == "ready", engine.status
 
+store.use_profile(store.create_profile("Sam"))
 brain = Brain(settings, "You are {name}, a friendly buddy. Keep replies short.", engine.url)
 reply, _ = brain.chat("e2e", "hi! my name is Sam and I love Roblox. say hi back.")
 print("REPLY:", reply)

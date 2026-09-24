@@ -91,12 +91,16 @@ def model_download(repo):
 
 def llama_download():
     """(url, size) of the newest llama.cpp Windows build (Vulkan: uses any GPU, falls back to CPU)."""
-    release = _get_json("https://api.github.com/repos/ggml-org/llama.cpp/releases/latest")
-    for suffix in ("-bin-win-vulkan-x64.zip", "-bin-win-cpu-x64.zip"):
-        for a in release["assets"]:
-            if a["name"].endswith(suffix):
-                return a["browser_download_url"], a["size"]
-    raise RuntimeError("couldn't find llama.cpp for Windows")
+    releases = _get_json("https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=10")
+    for release in releases:  # the newest release sometimes doesn't have its files uploaded yet
+        assets = release.get("assets", [])
+        for kind in ("vulkan", "cpu"):
+            for a in assets:
+                n = a["name"].lower()
+                if n.endswith(".zip") and "bin-win" in n and f"-{kind}-" in n and "x64" in n and not n.startswith("cudart"):
+                    return a["browser_download_url"], a["size"]
+    names = [a["name"] for r in releases[:2] for a in r.get("assets", [])]
+    raise RuntimeError(f"couldn't find llama.cpp for Windows (saw: {names[:30]})")
 
 
 def download(url, dest, on_progress):

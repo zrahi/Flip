@@ -77,10 +77,34 @@ class Api:
     # ---------- startup info ----------
 
     def hello(self):
+        return {"name": self._settings["name"], "pet": self._pet is not None,
+                "profiles": store.public_profiles(), "last": self._settings.get("last_profile")}
+
+    # ---------- profiles ----------
+
+    def _enter(self, prof):
+        store.use_profile(prof)
+        self._settings["last_profile"] = prof["id"]
+        save_settings(self._settings)
         chats = store.list_chats()
         chat = store.load_chat(chats[0]["id"]) if chats else store.new_chat()
-        return {"name": self._settings["name"], "chats": chats, "chat": chat,
-                "pet": self._pet is not None}
+        return {"profile": {"id": prof["id"], "name": prof["name"], "color": prof["color"]}, "chat": chat}
+
+    def enter_profile(self, profile_id, pin=""):
+        prof = store.check_pin(profile_id, pin)
+        return self._enter(prof) if prof else {"error": "wrong PIN 🙅"}
+
+    def create_profile(self, name, pin=""):
+        try:
+            return self._enter(store.create_profile(name, pin))
+        except ValueError as e:
+            return {"error": str(e)}
+
+    def delete_profile(self, profile_id, pin=""):
+        if not store.check_pin(profile_id, pin):
+            return {"error": "wrong PIN 🙅"}
+        store.delete_profile(profile_id)
+        return {"profiles": store.public_profiles()}
 
     def brain_status(self):
         return self._engine.status
@@ -94,6 +118,8 @@ class Api:
     # ---------- chatting ----------
 
     def send(self, chat_id, text, voice=False):
+        if store.current is None:
+            return {"error": "pick a profile first 👤"}
         if self._engine.status["state"] != "ready":
             return {"error": "hold up, my brain is still loading 🧠 give me a sec"}
         try:

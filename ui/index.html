@@ -67,6 +67,7 @@
     <div class="drawer-label">Chats</div>
     <div id="chat-list"></div>
     <div class="drawer-foot">
+      <button id="switch-btn" class="drawer-item">👤 <span id="who-name">Profile</span> · switch</button>
       <button id="memory-btn" class="drawer-item">🧠 What I remember</button>
       <button id="settings-btn" class="drawer-item">⚙️ Settings</button>
     </div>
@@ -104,6 +105,34 @@
         <button id="set-folder">open my folder</button>
       </div>
       <p id="set-note" class="hint"></p>
+    </div>
+  </section>
+
+  <section id="profiles">
+    <h1>who's chatting? 👀</h1>
+    <p class="hint center">everyone gets their own chats and memory</p>
+    <div id="prof-grid"></div>
+    <button id="prof-manage" class="link-btn">manage profiles</button>
+
+    <div id="prof-form" class="prof-box" hidden>
+      <h2 id="prof-form-title">make your profile</h2>
+      <input id="prof-name" placeholder="your name" maxlength="24" autocomplete="off">
+      <input id="prof-pin" placeholder="PIN (optional, 4-8 numbers)" maxlength="8" inputmode="numeric" type="password" autocomplete="off">
+      <p id="prof-error" class="err"></p>
+      <div class="set-actions">
+        <button id="prof-create" class="primary">let's go</button>
+        <button id="prof-cancel">back</button>
+      </div>
+    </div>
+
+    <div id="pin-box" class="prof-box" hidden>
+      <h2 id="pin-title">enter your PIN</h2>
+      <input id="pin-input" placeholder="PIN" maxlength="8" inputmode="numeric" type="password" autocomplete="off">
+      <p id="pin-error" class="err"></p>
+      <div class="set-actions">
+        <button id="pin-go" class="primary">enter</button>
+        <button id="pin-back">back</button>
+      </div>
     </div>
   </section>
 

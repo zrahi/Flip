@@ -550,6 +550,119 @@ async function pollRoblox() {
   if (state === 'starting') setTimeout(pollRoblox, 2000);
 }
 
+// ---------- profiles ----------
+
+let profiles = [];
+let pinFor = null;
+
+function showProfiles(list) {
+  profiles = list;
+  body.classList.add('profiles');
+  body.classList.remove('picking', 'manage');
+  $('#prof-form').hidden = true;
+  $('#pin-box').hidden = true;
+  const grid = $('#prof-grid');
+  grid.innerHTML = '';
+  for (const p of list) {
+    const b = document.createElement('button');
+    b.className = 'prof';
+    b.innerHTML = `<div class="av"></div><div class="nm"></div>`;
+    b.querySelector('.av').style.background = p.color;
+    b.querySelector('.av').textContent = p.name[0].toUpperCase();
+    if (p.has_pin) b.querySelector('.av').insertAdjacentHTML('beforeend', '<span class="lock">🔒</span>');
+    b.querySelector('.nm').textContent = p.name;
+    b.addEventListener('click', () => pickProfile(p));
+    grid.appendChild(b);
+  }
+  const add = document.createElement('button');
+  add.className = 'prof add';
+  add.innerHTML = '<div class="av">+</div><div class="nm">new</div>';
+  add.addEventListener('click', () => showCreate(true));
+  grid.appendChild(add);
+  $('#prof-manage').hidden = !list.length;
+  if (!list.length) showCreate(false);
+}
+
+function showCreate(canCancel) {
+  body.classList.add('picking');
+  $('#prof-form').hidden = false;
+  $('#prof-cancel').hidden = !canCancel;
+  $('#prof-form-title').textContent = profiles.length ? 'new profile' : 'first, what\'s your name? 👋';
+  $('#prof-name').value = '';
+  $('#prof-pin').value = '';
+  $('#prof-error').textContent = '';
+  $('#prof-name').focus();
+}
+
+async function pickProfile(p) {
+  if (body.classList.contains('manage')) {
+    if (p.has_pin) { askPin(p, 'delete'); return; }
+    if (!confirm(`delete ${p.name}? all their chats and memory are gone forever`)) return;
+    const r = await api.delete_profile(p.id, '');
+    showProfiles(r.profiles || profiles);
+    return;
+  }
+  if (p.has_pin) { askPin(p, 'enter'); return; }
+  enterWith(await api.enter_profile(p.id, ''));
+}
+
+function askPin(p, mode) {
+  pinFor = { p, mode };
+  body.classList.add('picking');
+  $('#pin-box').hidden = false;
+  $('#pin-title').textContent = mode === 'delete' ? `PIN to delete ${p.name}` : `hey ${p.name}, enter your PIN`;
+  $('#pin-input').value = '';
+  $('#pin-error').textContent = '';
+  $('#pin-input').focus();
+}
+
+async function submitPin() {
+  const { p, mode } = pinFor;
+  const pin = $('#pin-input').value;
+  if (mode === 'delete') {
+    if (!confirm(`delete ${p.name}? all their chats and memory are gone forever`)) return;
+    const r = await api.delete_profile(p.id, pin);
+    if (r.error) { $('#pin-error').textContent = r.error; return; }
+    showProfiles(r.profiles);
+    return;
+  }
+  const r = await api.enter_profile(p.id, pin);
+  if (r.error) { $('#pin-error').textContent = r.error; $('#pin-input').value = ''; return; }
+  enterWith(r);
+}
+
+function enterWith(r) {
+  if (r.error) return;
+  body.classList.remove('profiles', 'picking', 'manage');
+  $('#who-name').textContent = r.profile.name;
+  showChat(r.chat);
+  flash('happy', 1300, pick([`yooo ${r.profile.name}!! 😤`, `ayy ${r.profile.name}'s back 🔥`, `what's good ${r.profile.name} 👋`]));
+}
+
+$('#prof-create').addEventListener('click', async () => {
+  const r = await api.create_profile($('#prof-name').value, $('#prof-pin').value);
+  if (r.error) { $('#prof-error').textContent = r.error; return; }
+  enterWith(r);
+});
+$('#prof-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#prof-create').click(); });
+$('#prof-pin').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#prof-create').click(); });
+$('#prof-cancel').addEventListener('click', () => showProfiles(profiles));
+$('#pin-go').addEventListener('click', submitPin);
+$('#pin-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitPin(); });
+$('#pin-back').addEventListener('click', () => showProfiles(profiles));
+$('#prof-manage').addEventListener('click', () => {
+  body.classList.toggle('manage');
+  $('#prof-manage').textContent = body.classList.contains('manage') ? 'done' : 'manage profiles';
+});
+$('#switch-btn').addEventListener('click', async () => {
+  if (busy) return;
+  closeAll();
+  const info = await api.hello();
+  showProfiles(info.profiles);
+});
+
+// ---------- startup ----------
+
 window.addEventListener('pywebviewready', async () => {
   api = window.pywebview.api;
   const info = await api.hello();
@@ -559,8 +672,9 @@ window.addEventListener('pywebviewready', async () => {
   pet.svg.setAttribute('aria-label', petName);
   input.placeholder = `talk to ${petName}…`;
   onPetChanged(info.pet);
-  showChat(info.chat);
-  flash('happy', 1300, pick(GREETINGS));
+  const only = info.profiles.length === 1 && !info.profiles[0].has_pin ? info.profiles[0] : null;
+  if (only) enterWith(await api.enter_profile(only.id, ''));
+  else showProfiles(info.profiles);
   watchBrain();
   pollRoblox();
 });

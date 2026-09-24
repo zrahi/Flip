@@ -153,6 +153,8 @@ class Brain:
 
     def _system(self, voice):
         parts = [self.personality]
+        if store.current:
+            parts.append(f"You're talking to {store.current['name']} (that's the name on their profile).")
         mems = store.memories()
         if mems:
             parts.append("THINGS YOU REMEMBER ABOUT THE USER (from past chats):\n" +

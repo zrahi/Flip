@@ -15,7 +15,31 @@ from brain import Brain
 HERE = Path(__file__).resolve().parent
 
 
+def test_profiles_keep_things_separate():
+    a = store.create_profile("Marru", "1234")
+    b = store.create_profile("Sam")
+    with pytest.raises(ValueError):
+        store.create_profile("marru")          # name taken
+    with pytest.raises(ValueError):
+        store.create_profile("Zed", "12")      # PIN too short
+    assert store.check_pin(a["id"], "0000") is None
+    assert store.check_pin(a["id"], "1234")["name"] == "Marru"
+    assert store.check_pin(b["id"], "")["name"] == "Sam"
+    assert [p["has_pin"] for p in store.public_profiles()] == [True, False]
+    assert "pin" not in store.public_profiles()[0]
+
+    store.use_profile(a)
+    store.remember("Marru likes obbies")
+    store.use_profile(b)
+    assert store.memories() == []              # Sam can't see Marru's memory
+    store.delete_profile(b["id"])
+    assert [p["name"] for p in store.public_profiles()] == ["Marru"]
+    store.use_profile(a)
+    store.forget(store.memories()[0]["id"])
+
+
 def test_chats_and_memory():
+    store.use_profile(store.profiles()[0])
     chat = store.new_chat()
     assert store.load_chat(chat["id"]) is None  # empty chats aren't saved
     chat["messages"].append({"role": "user", "content": "hi"})
@@ -92,6 +116,7 @@ def test_brain_memory_and_studio_tools():
     used = []
     b.on_tool = used.append
 
+    store.use_profile(store.profiles()[0])
     reply, chat = b.chat("c0ffee", "yo I'm Marru")
     assert used == ["remember", "run_code"]
     assert reply.startswith("bet saved as [") and reply.endswith("ran: print(1)")
@@ -101,6 +126,7 @@ def test_brain_memory_and_studio_tools():
 
     b.chat("c0ffee", "again")  # the memory now shows up in what the AI is told
     assert "name is Marru" in FakeModel.last["messages"][0]["content"]
+    assert "You're talking to Marru" in FakeModel.last["messages"][0]["content"]
     assert FakeModel.last["model"] == "qwen"
     server.shutdown()
 

@@ -206,3 +206,38 @@ body.panel-open #panel { transform: none; }
 .panel-body label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--text); font-size: 14px; }
 .panel-body label.check input { width: 18px; height: 18px; accent-color: var(--accent); }
 .set-actions { display: flex; gap: 8px; }
+
+/* ---------- profiles ---------- */
+#profiles {
+  position: absolute; inset: 0; z-index: 9; background: var(--bg);
+  display: none; flex-direction: column; align-items: center; padding: 70px 22px 24px; gap: 10px; overflow-y: auto;
+}
+body.profiles #profiles { display: flex; }
+#profiles h1 { font-size: 24px; }
+.center { text-align: center; }
+#prof-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 18px; margin-top: 22px; max-width: 360px; }
+.prof { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 88px; cursor: pointer; background: none; border: none; color: var(--text); }
+.prof .av {
+  position: relative; width: 76px; height: 76px; border-radius: 22px; display: grid; place-items: center;
+  font-size: 32px; font-weight: 800; color: #15131f; transition: transform .15s, box-shadow .15s;
+}
+.prof:hover .av { transform: translateY(-3px) scale(1.04); box-shadow: 0 8px 22px rgba(0, 0, 0, .4); }
+.prof .nm { font-size: 14px; max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prof .lock { position: absolute; right: -4px; bottom: -4px; font-size: 14px; background: var(--panel-2); border-radius: 8px; padding: 1px 4px; }
+.prof.add .av { background: var(--panel); color: var(--muted); border: 2px dashed var(--border); }
+body.manage .prof:not(.add) .av::after {
+  content: "🗑"; position: absolute; inset: 0; border-radius: 22px; display: grid; place-items: center;
+  background: rgba(255, 77, 109, .75); font-size: 26px;
+}
+.link-btn { margin-top: 18px; background: none; border: none; color: var(--muted); cursor: pointer; text-decoration: underline; font-size: 13px; }
+.prof-box { width: 100%; max-width: 320px; display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
+.prof-box[hidden] { display: none; }
+.prof-box h2 { font-size: 17px; text-align: center; }
+.prof-box input {
+  padding: 11px 13px; border-radius: 12px; outline: none; font: inherit; user-select: text;
+  background: var(--panel); color: var(--text); border: 1px solid var(--border);
+}
+.prof-box input:focus { border-color: var(--accent); }
+.prof-box .set-actions { justify-content: center; }
+.err { color: #ff8a8a; font-size: 13px; min-height: 18px; text-align: center; }
+body.picking #prof-grid, body.picking #prof-manage, body.picking #profiles > .hint { display: none; }
