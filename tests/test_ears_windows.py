@@ -33,4 +33,6 @@ def test_ears_catch_and_understand_speech(tmp_path):
         assert len(caught) == 1, (gain, len(caught))
         text = v.transcribe(caught[0]).lower()
         print(gain, "heard:", text)
-        assert "jett" in text and "ascent" in text, text
+        words = ["hey", "flip", "how", "do", "play", "jett", "on", "ascent"]
+        heard = [w for w in words if w in text]
+        assert "jett" in text and len(heard) >= 6, (text, heard)

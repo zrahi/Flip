@@ -266,6 +266,12 @@ def test_brain_memory_tools_and_streaming():
     assert FakeModel.last["messages"][0]["content"] == system
     assert "voice call" in FakeModel.last["messages"][-1]["content"]
 
+    b.chat("c0ffee", "what's on my screen?", image="data:image/jpeg;base64,AAAA", image_label="Valorant")
+    parts = FakeModel.last["messages"][-1]["content"]
+    assert parts[0]["type"] == "text" and "Valorant" in parts[0]["text"]
+    assert parts[1] == {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AAAA"}}
+    assert store.load_chat("c0ffee")["messages"][-2]["content"] == "what's on my screen?"  # the picture isn't saved
+
     FakeModel.slow = True  # the stop button
     stop = threading.Event()
     threading.Timer(0.8, stop.set).start()
@@ -290,4 +296,20 @@ def test_downloads_exist():
         assert all(url.endswith(".zip") and size > 1e6 for url, size in found)
     for repo in {r for _, r in engine.MODELS} | set(engine.FAST.values()):
         url, name, size = engine.model_download(repo)
-        assert name.endswith(".gguf") and size > 1e9, (repo, name, size)
+        assert name.endswith(".gguf") and size > 5e8, (repo, name, size)
+        eyes = engine.eyes_download(repo)
+        assert eyes and "mmproj" in eyes[1].lower() and eyes[2] > 1e8, (repo, eyes)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows only")
+def test_screen_sharing_sources_and_capture():
+    import screen
+
+    items = screen.sources()
+    assert items[0]["kind"] == "screen"
+    shot = screen.capture(items[0]["id"])
+    assert shot and shot.startswith("data:image/jpeg;base64,") and len(shot) > 5000
+    windows = [s for s in items if s["kind"] == "window"]
+    print("windows:", [w["title"] for w in windows][:10])
+    for w in windows[:3]:
+        assert screen.capture(w["id"]) is not None, w

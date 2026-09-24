@@ -22,27 +22,27 @@ PORT = 8765
 LLAMA_DIRS = {"vulkan": DATA / "llama", "cuda": DATA / "llama-cuda"}
 MODEL_DIR = DATA / "models"
 HEADERS = {"User-Agent": "Flip/1.0"}
-QUANT = "Q4_K_M"
 # How much of the chat the brain can hold at once. Small enough that the whole brain fits on an
 # 8 GB graphics card (if any of it spills onto the processor, replies get way slower).
 CONTEXT = "8192"
 
+# His brains can see (for screen sharing): Qwen3-VL, with a separate "eyes" file (mmproj).
 # (minimum GPU memory in GB, Hugging Face repo). The first one that fits is used.
 MODELS = [
-    (14, "unsloth/Qwen3-14B-GGUF"),
-    (7, "unsloth/Qwen3-8B-GGUF"),
-    (0, "unsloth/Qwen3-4B-Instruct-2507-GGUF"),
+    (7, "Qwen/Qwen3-VL-8B-Instruct-GGUF"),
+    (0, "Qwen/Qwen3-VL-4B-Instruct-GGUF"),
 ]
 # Fast mode: a smaller brain that answers much quicker.
 FAST = {
-    "unsloth/Qwen3-14B-GGUF": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
-    "unsloth/Qwen3-8B-GGUF": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
-    "unsloth/Qwen3-4B-Instruct-2507-GGUF": "unsloth/Qwen3-1.7B-GGUF",
+    "Qwen/Qwen3-VL-8B-Instruct-GGUF": "Qwen/Qwen3-VL-4B-Instruct-GGUF",
+    "Qwen/Qwen3-VL-4B-Instruct-GGUF": "Qwen/Qwen3-VL-2B-Instruct-GGUF",
 }
+QUANTS = ("Q4_K_M", "Q4_K_S", "Q4_0", "Q8_0")  # first one a repo has wins
+EYES_QUANTS = ("Q8_0", "F16", "BF16")
 
 
 def short_name(repo):
-    return repo.split("/")[-1].replace("-GGUF", "").replace("-Instruct-2507", "")
+    return repo.split("/")[-1].replace("-GGUF", "").replace("-Instruct-2507", "").replace("-Instruct", "")
 
 
 def gpu_info():
@@ -101,14 +101,32 @@ def _get_json(url):
         return json.load(r)
 
 
+def _repo_files(repo):
+    return [f for f in _get_json(f"https://huggingface.co/api/models/{repo}/tree/main")
+            if f.get("path", "").lower().endswith(".gguf") and "/" not in f.get("path", "")]
+
+
 def model_download(repo):
-    """(url, file name, size) of the Q4_K_M model file in a Hugging Face repo."""
-    files = _get_json(f"https://huggingface.co/api/models/{repo}/tree/main")
-    for f in files:
-        path = f.get("path", "")
-        if path.lower().endswith(".gguf") and QUANT.lower() in path.lower() and "/" not in path and "mmproj" not in path.lower():
-            return f"https://huggingface.co/{repo}/resolve/main/{path}", path, f.get("size", 0)
-    raise RuntimeError(f"no {QUANT} model file in {repo}")
+    """(url, file name, size) of the brain file in a Hugging Face repo (Q4_K_M if it has one)."""
+    files = [f for f in _repo_files(repo) if "mmproj" not in f["path"].lower()]
+    for quant in QUANTS:
+        for f in files:
+            if quant.lower() in f["path"].lower():
+                return f"https://huggingface.co/{repo}/resolve/main/{f['path']}", f["path"], f.get("size", 0)
+    raise RuntimeError(f"no usable model file in {repo}")
+
+
+def eyes_download(repo):
+    """(url, file name, size) of the brain's eyes (the mmproj file that lets it see pictures), or None."""
+    files = [f for f in _repo_files(repo) if "mmproj" in f["path"].lower()]
+    for quant in EYES_QUANTS:
+        for f in files:
+            if quant.lower() in f["path"].lower():
+                return f"https://huggingface.co/{repo}/resolve/main/{f['path']}", f["path"], f.get("size", 0)
+    if files:
+        f = files[0]
+        return f"https://huggingface.co/{repo}/resolve/main/{f['path']}", f["path"], f.get("size", 0)
+    return None
 
 
 def llama_download(kind="vulkan"):
@@ -168,6 +186,7 @@ class Engine:
         self.status = {"state": "starting", "title": "waking up…", "detail": "", "progress": None}
         self.url = settings.get("llm_url") or f"http://127.0.0.1:{PORT}/v1"
         self.model_name = ""
+        self.eyes = None
         self.on_ready = None
 
     def start(self):
@@ -182,7 +201,7 @@ class Engine:
 
     def _set(self, state, title, detail="", progress=None):
         self.status = {"state": state, "title": title, "detail": detail, "progress": progress,
-                       "model": self.model_name, "fast": bool(self._s.get("fast_mode")),
+                       "model": self.model_name, "fast": bool(self._s.get("fast_mode")), "vision": bool(self.eyes),
                        "hardware": self.hardware() if state == "ready" and not self._s.get("llm_url") else ""}
         if state == "ready":
             log.info("Brain ready: %s on %s", self.model_name, self.status["hardware"] or "your own server")
@@ -233,7 +252,7 @@ class Engine:
             main = wanted
         else:
             main = self._s.get("auto_model")
-            if not main:
+            if main not in {r for _, r in MODELS}:  # not set yet, or a brain from an older version
                 vram = gpu_memory_gb()
                 main = pick_model(vram)
                 log.info("GPU memory %.1f GB, picked %s", vram, main)
@@ -277,17 +296,51 @@ class Engine:
             index.setdefault(old["repo"], old["file"])
         except (OSError, ValueError, KeyError):
             pass
-        name = index.get(repo)
-        if name and (MODEL_DIR / name).exists():
-            return MODEL_DIR / name
         title = "downloading my fast brain ⚡" if self._s.get("fast_mode") else "downloading my brain 🧠"
-        self._set("downloading", title, "finding the best one for your PC…", None)
-        url, name, _ = model_download(repo)
-        download(url, MODEL_DIR / name, lambda d, t: self._set("downloading", title,
-                                                              f"{_gb(d)} / {_gb(t)} GB", d / t if t else None))
-        index[repo] = name
-        index_file.write_text(json.dumps(index, indent=1))
+        name = index.get(repo)
+        if not (name and (MODEL_DIR / name).exists()):
+            self._set("downloading", title, "finding the best one for your PC…", None)
+            url, name, _ = model_download(repo)
+            download(url, MODEL_DIR / name, lambda d, t: self._set("downloading", title,
+                                                                  f"{_gb(d)} / {_gb(t)} GB", d / t if t else None))
+            index[repo] = name
+            index_file.write_text(json.dumps(index, indent=1))
+        # the brain's eyes, so it can see shared screens (only some brains have them)
+        self.eyes = None
+        eyes = index.get(repo + "#eyes")
+        if eyes and (MODEL_DIR / eyes).exists():
+            self.eyes = MODEL_DIR / eyes
+        elif repo + "#eyes" not in index or eyes:
+            found = eyes_download(repo)
+            if found:
+                url, eyes_name, _ = found
+                eyes = f"{short_name(repo)}-{eyes_name}"
+                self._set("downloading", "downloading my eyes 👀", "so I can see your screen", None)
+                download(url, MODEL_DIR / eyes, lambda d, t: self._set("downloading", "downloading my eyes 👀",
+                                                                      f"{_gb(d)} / {_gb(t)} GB", d / t if t else None))
+                self.eyes = MODEL_DIR / eyes
+            index[repo + "#eyes"] = eyes or ""
+            index_file.write_text(json.dumps(index, indent=1))
         return MODEL_DIR / name
+
+    def _forget_old_brains(self):
+        """Brains from older Flip versions (that can't see) get deleted once the new one works."""
+        if self._s.get("local_model", "auto") != "auto":
+            return
+        current = {r for _, r in MODELS} | set(FAST.values())
+        index_file = MODEL_DIR / "models.json"
+        try:
+            index = json.loads(index_file.read_text())
+        except (OSError, ValueError):
+            return
+        for key, name in list(index.items()):
+            if key.split("#")[0] not in current:
+                if name:
+                    (MODEL_DIR / name).unlink(missing_ok=True)
+                del index[key]
+                log.info("Deleted old brain file %s", name)
+        index_file.write_text(json.dumps(index, indent=1))
+        (MODEL_DIR / "model.json").unlink(missing_ok=True)
 
     def _launch(self, kinds, model):
         log_file = open(DATA / "brain.log", "ab")
@@ -301,6 +354,7 @@ class Engine:
                 continue
             self._set("loading", "loading my brain into memory…", "almost there", None)
             args = [str(server), "-m", str(model), "--host", "127.0.0.1", "--port", str(PORT),
+                    *(["--mmproj", str(self.eyes)] if self.eyes else []),
                     "-c", CONTEXT, "--reasoning", "off", "--no-webui",
                     # one conversation slot: every message lands where the last one was, so the brain
                     # reuses what it already read instead of starting over
@@ -320,6 +374,7 @@ class Engine:
                         break  # this engine couldn't use the graphics card, try the next one
                     (DATA / "running.json").write_text(json.dumps({"kind": kind if gpu else "cpu", "model": model.name}))
                     self._set("ready", "ready")
+                    self._forget_old_brains()
                     return
                 time.sleep(1)
             self.stop()

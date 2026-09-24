@@ -198,7 +198,7 @@ class Voice:
         if 0 < peak < 0.3:  # quiet mic: turn it up so speech-to-text hears it clearly
             audio = audio * min(8.0, 0.5 / peak)
         segments, _ = self._get_whisper().transcribe(
-            audio, language="en", beam_size=3, initial_prompt=HINT_WORDS, condition_on_previous_text=False,
+            audio, language="en", beam_size=5, initial_prompt=HINT_WORDS, condition_on_previous_text=False,
             vad_filter=trim_silence, vad_parameters={"threshold": 0.3, "min_silence_duration_ms": 600},
         )
         text = " ".join(s.text.strip() for s in segments).strip()

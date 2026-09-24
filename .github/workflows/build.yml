@@ -11,7 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
 
@@ -63,10 +63,11 @@ jobs:
           }
           "Flip.exe size: {0:N0} MB" -f ((Get-Item dist\Flip.exe).Length / 1MB)
 
-      - name: Real brain test (downloads llama.cpp + a tiny model and chats)
+      - name: Real brain test (downloads llama.cpp + a small seeing brain, chats, looks at a picture)
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PYTHONIOENCODING: utf-8
+          FLIP_E2E_HOME: ${{ runner.temp }}\flip-e2e
         shell: pwsh
         run: |
           python tests/e2e_brain.py 2>&1 | Tee-Object -FilePath e2e.txt
@@ -76,13 +77,42 @@ jobs:
             if (Test-Path "$env:TEMP") { Get-ChildItem $env:TEMP -Filter brain.log -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $b = (Get-Content $_.FullName -Tail 15) -join ' // '; Write-Output "::error title=brain.log::$b" } }
             exit 1
           }
-          Select-String -Path e2e.txt -Pattern "^REPLY|^hardware:" | ForEach-Object { Write-Output "::notice title=Brain speed::$($_.Line)" }
+          Select-String -Path e2e.txt -Pattern "^REPLY|^hardware:|^E2E" | ForEach-Object { Write-Output "::notice title=Brain speed::$($_.Line)" }
           Get-ChildItem $env:TEMP -Filter brain.log -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Select-String -Path $_.FullName -Pattern "prompt eval time|cache" | Select-Object -Last 6 | ForEach-Object { Write-Output "::notice title=brain.log::$($_.Line)" } }
 
       - uses: actions/upload-artifact@v4
         with:
           name: Flip
           path: dist/Flip.exe
+
+      - name: Click through the whole real app (results + screenshots go to the ci-screens branch)
+        shell: pwsh
+        run: |
+          $env:FLIP_HOME = "$env:RUNNER_TEMP\flip-auto"
+          New-Item -ItemType Directory -Force $env:FLIP_HOME | Out-Null
+          # reuse the engine and brain the brain test already downloaded
+          Copy-Item -Recurse "$env:RUNNER_TEMP\flip-e2e\llama*" $env:FLIP_HOME -ErrorAction SilentlyContinue
+          Copy-Item -Recurse "$env:RUNNER_TEMP\flip-e2e\models" $env:FLIP_HOME -ErrorAction SilentlyContinue
+          '{"local_model": "Qwen/Qwen3-VL-2B-Instruct-GGUF", "roblox_studio": false, "version": 3}' | Out-File -Encoding ascii "$env:FLIP_HOME\settings.json"
+          $env:FLIP_AUTOTEST = "$env:RUNNER_TEMP\autotest"
+          $p = Start-Process -FilePath dist\Flip.exe -PassThru
+          if (-not $p.WaitForExit(2700000)) { $p.Kill(); Write-Output "::error title=Autotest::timed out" }
+          $results = Get-Content "$env:FLIP_AUTOTEST\results.txt" -Raw -ErrorAction SilentlyContinue
+          if (-not $results) { $results = "NO RESULTS`n" + ((Get-Content "$env:FLIP_HOME\flip.log" -Tail 40) -join "`n") }
+          Write-Output $results
+          ($results -split "`n") | Where-Object { $_ -match '^(PASS|FAIL|NO)' } | ForEach-Object { Write-Output "::notice title=App test::$_" }
+          New-Item -ItemType Directory -Force shots | Out-Null
+          Copy-Item "$env:FLIP_AUTOTEST\*" shots -ErrorAction SilentlyContinue
+          Copy-Item "$env:FLIP_HOME\flip.log" shots\flip-log.txt -ErrorAction SilentlyContinue
+          Copy-Item "$env:FLIP_HOME\brain.log" shots\brain-log.txt -ErrorAction SilentlyContinue
+          git config user.name "flip-build"
+          git config user.email "flip-build@users.noreply.github.com"
+          git checkout --orphan ci-screens
+          git reset -q
+          git add -f shots
+          git commit -q -m "app test from build ${{ github.run_number }}"
+          git push -f origin ci-screens
+          if ($results -notmatch "ALL PASSED") { throw "the app test failed" }
 
       - name: Publish release
         env:
@@ -92,26 +122,3 @@ jobs:
           gh release create "v1.${{ github.run_number }}" dist/Flip.exe `
             --title "Flip v1.${{ github.run_number }}" `
             --notes "Download **Flip.exe** below and double-click it. First launch downloads his brain (a few GB, one time only)."
-
-      - name: Screenshot the real app (saved to the ci-screens branch)
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          $env:FLIP_HOME = "$env:RUNNER_TEMP\flip-shot"
-          New-Item -ItemType Directory -Force $env:FLIP_HOME | Out-Null
-          python tests/prepare_screenshot.py
-          $env:FLIP_SCREENSHOT = "$env:RUNNER_TEMP\shot.png"
-          $env:FLIP_SCREENSHOT_WAIT = "30"
-          $p = Start-Process -FilePath dist\Flip.exe -PassThru
-          if (-not $p.WaitForExit(120000)) { $p.Kill() }
-          Get-Content "$env:FLIP_HOME\flip.log" -Tail 20 -ErrorAction SilentlyContinue
-          if (-not (Test-Path $env:FLIP_SCREENSHOT)) { throw "no screenshot" }
-          Copy-Item $env:FLIP_SCREENSHOT shot.png
-          Copy-Item "$env:FLIP_HOME\flip.log" flip-log.txt -ErrorAction SilentlyContinue
-          git config user.name "flip-build"
-          git config user.email "flip-build@users.noreply.github.com"
-          git checkout --orphan ci-screens
-          git reset -q
-          git add -f shot.png flip-log.txt
-          git commit -q -m "screenshot from build ${{ github.run_number }}"
-          git push -f origin ci-screens

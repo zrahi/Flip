@@ -262,7 +262,7 @@ body.panel-open #panel { transform: translate(-50%, 0); }
 .panel-head h2 { font-size: 17px; }
 .panel-body { display: none; flex-direction: column; gap: 12px; overflow-y: auto; }
 #panel[data-show="memory"] #memory-panel, #panel[data-show="settings"] #settings-panel,
-#panel[data-show="update"] #update-panel { display: flex; }
+#panel[data-show="update"] #update-panel, #panel[data-show="share"] #share-panel { display: flex; }
 .add-row { display: flex; gap: 8px; }
 .add-row input, .panel-body label input:not([type="checkbox"]), .panel-body select {
   flex: 1; width: 100%; padding: 9px 12px; border-radius: 10px; outline: none; font: inherit;
@@ -354,3 +354,24 @@ button.danger:hover { background: #ff4d6d; color: #fff; }
 @keyframes nudge { 0%, 88%, 100% { transform: translateY(0); } 92% { transform: translateY(-3px); } 96% { transform: translateY(0); } }
 .notes { white-space: pre-wrap; font: 13px/1.5 inherit; color: var(--muted); background: var(--panel); border-radius: 10px; padding: 10px 12px; max-height: 180px; overflow-y: auto; }
 #update-bar { height: 100%; width: 0; border-radius: 999px; background: linear-gradient(90deg, var(--accent), #8affd6); transition: width .3s ease; }
+
+/* ---------- screen sharing ---------- */
+#share-badge {
+  position: absolute; top: 58px; left: 50%; transform: translateX(-50%); z-index: 3;
+  display: flex; align-items: center; gap: 10px; padding: 5px 6px 5px 5px; border-radius: 999px;
+  background: rgba(255, 77, 109, .14); border: 1px solid rgba(255, 77, 109, .5); font-size: 13px; white-space: nowrap;
+}
+#share-badge img { width: 44px; height: 26px; object-fit: cover; border-radius: 999px 6px 6px 999px; }
+#share-badge b { max-width: 220px; display: inline-block; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+#share-badge button { border: none; border-radius: 999px; padding: 3px 12px; background: #ff4d6d; color: #fff; cursor: pointer; font-weight: 600; }
+body.sharing #share-btn, body.sharing #share-voice { color: #ff4d6d; }
+#share-list { display: flex; flex-direction: column; gap: 4px; }
+.src { display: flex; align-items: center; gap: 10px; text-align: left; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel); cursor: pointer; font-size: 14px; }
+.src:hover { border-color: var(--accent); }
+.src .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.src .k { font-size: 12px; color: var(--muted); }
+.call-row { display: flex; align-items: center; gap: 18px; margin-top: 10px; }
+.call-row .end-btn { margin-top: 0; }
+.call-btn { width: 50px; height: 50px; border-radius: 50%; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); cursor: pointer; display: grid; place-items: center; }
+.call-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.call-btn:hover { border-color: var(--accent); }

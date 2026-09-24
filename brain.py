@@ -42,9 +42,11 @@ class NoModelError(Exception):
     pass
 
 
-def estimate_tokens(text):
-    """Rough token count (the brain reads about 3.5 characters per token)."""
-    return len(text) // 3 + 1
+def estimate_tokens(content):
+    """Rough token count (the brain reads about 3.5 characters per token; a screenshot is ~1000)."""
+    if isinstance(content, list):
+        return sum(estimate_tokens(p.get("text", "")) if p.get("type") == "text" else 1000 for p in content)
+    return len(content) // 3 + 1
 
 
 def short(text, limit):
@@ -307,7 +309,7 @@ class Brain:
             kept.pop(0)
         last = kept[-1]
         room = budget - fixed - sum(estimate_tokens(m["content"]) for m in kept[:-1])
-        if estimate_tokens(last["content"]) > room:  # one giant message: keep its end
+        if isinstance(last["content"], str) and estimate_tokens(last["content"]) > room:  # one giant message: keep its end
             kept[-1] = {"role": last["role"], "content": "…" + last["content"][-max(200, room * 3):]}
         return kept, tools
 
@@ -326,15 +328,21 @@ class Brain:
             text = text[:MAX_TOOL_OUTPUT] + "\n...(cut off)"
         return text
 
-    def chat(self, chat_id, text, voice=False, on_text=None, stop=None):
+    def chat(self, chat_id, text, voice=False, on_text=None, stop=None, image=None, image_label=""):
         chat = store.load_chat(chat_id) or store.new_chat(chat_id)
         history = [{"role": m["role"], "content": m["content"]} for m in chat["messages"][-MAX_HISTORY:]]
-        topic = " ".join(m["content"] for m in history[-6:]) + " " + text
+        topic = " ".join(str(m["content"]) for m in history[-6:]) + " " + text
         prompt = text
         if voice:
             prompt += ("\n\n(We're in a live voice call: answer in 1-2 short spoken sentences, "
                        "no code blocks, lists or emojis unless I ask.)")
-        history.append({"role": "user", "content": prompt})
+        if image:
+            # a picture of what they're sharing right now; only the newest one is sent, to keep it quick
+            prompt += f"\n\n(I'm sharing my screen with you: {image_label or 'my screen'}. The picture is what's on it right now.)"
+            history.append({"role": "user", "content": [{"type": "text", "text": prompt},
+                                                        {"type": "image_url", "image_url": {"url": image}}]})
+        else:
+            history.append({"role": "user", "content": prompt})
         started, first = time.time(), [None]
 
         def stream_text(piece):

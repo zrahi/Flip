@@ -352,7 +352,8 @@ function speakWithWindows(text) {
     u.rate = 1.1;
     u.pitch = 1.6;  // he's small, so he sounds small
     let timer = 0;
-    const done = () => { clearInterval(timer); pet.mouth(0); speakDone = null; resolve(); };
+    let over = false;
+    const done = () => { if (over) return; over = true; clearInterval(timer); pet.mouth(0); speakDone = null; resolve(); };
     speakDone = () => { speechSynthesis.cancel(); done(); };
     u.onstart = () => {
       setState('talking');
@@ -360,6 +361,7 @@ function speakWithWindows(text) {
     };
     u.onend = done;
     u.onerror = done;
+    setTimeout(done, clean.length * 90 + 4000);  // in case Windows never says it's finished
     speechSynthesis.speak(u);
   });
 }
@@ -621,7 +623,8 @@ document.addEventListener('click', (e) => {
 function openPanel(which) {
   body.classList.remove('sb-open');
   $('#panel').dataset.show = which;
-  $('#panel-title').textContent = { memory: '🧠 What I remember', settings: '⚙️ Settings', update: '⬆ New update' }[which];
+  $('#panel-title').textContent = { memory: '🧠 What I remember', settings: '⚙️ Settings', update: '⬆ New update',
+    share: '👀 Share your screen' }[which];
   body.classList.add('panel-open');
 }
 $('#panel-close').addEventListener('click', closeAll);
@@ -738,6 +741,11 @@ $('#pw-save').addEventListener('click', async () => {
 
 // ---------- fast mode ----------
 
+function showVision(on) {
+  $('#share-btn').hidden = !on;
+  $('#share-voice').hidden = !on;
+}
+
 function showFast(on, s = {}) {
   fast = !!on;
   $('#fast-btn').classList.toggle('on', fast);
@@ -769,6 +777,7 @@ async function watchBrain() {
   let s;
   try { s = await api.brain_status(); } catch (e) { setTimeout(watchBrain, 1000); return; }
   if ('fast' in s) showFast(s.fast, s);
+  showVision(!!s.vision);
   if (s.state === 'ready') {
     if (body.classList.contains('setup')) {
       body.classList.remove('setup', 'setup-error');
@@ -840,6 +849,7 @@ function openAccount(acct) {
 
 async function logOut() {
   closeAll();
+  if (sharing) stopShare();
   if (voiceOn) endVoice();
   if (busy) stopReply();
   await api.log_out();
@@ -982,6 +992,52 @@ $('#prof-manage').addEventListener('click', () => {
   body.classList.toggle('manage');
   $('#prof-manage').textContent = body.classList.contains('manage') ? 'done' : 'manage profiles';
 });
+
+// ---------- screen sharing ----------
+
+let sharing = null;
+
+async function openShare() {
+  if (sharing) { stopShare(); return; }
+  const r = await api.share_sources();
+  const list = $('#share-list');
+  list.innerHTML = '';
+  $('#share-note').textContent = r.error || '';
+  for (const s of r.sources || []) {
+    const b = document.createElement('button');
+    b.className = 'src';
+    b.innerHTML = `<span>${s.kind === 'screen' ? '🖥' : '🪟'}</span><span class="t"></span><span class="k">${s.kind === 'screen' ? 'screen' : 'window'}</span>`;
+    b.querySelector('.t').textContent = s.title;
+    b.addEventListener('click', () => startShare(s));
+    list.appendChild(b);
+  }
+  if (voiceOn) { body.classList.add('panel-open'); $('#panel').dataset.show = 'share'; $('#panel-title').textContent = '👀 Share your screen'; }
+  else openPanel('share');
+}
+
+async function startShare(s) {
+  const r = await api.share_start(s.id, s.title);
+  if (r.error) { $('#share-note').textContent = r.error; return; }
+  sharing = s;
+  $('#share-thumb').src = r.preview;
+  $('#share-name').textContent = s.title;
+  $('#share-badge').hidden = false;
+  body.classList.add('sharing');
+  body.classList.remove('panel-open');
+  flash('excited', 1500, 'ooh let me see 👀');
+}
+
+function stopShare() {
+  sharing = null;
+  api.share_stop();
+  $('#share-badge').hidden = true;
+  body.classList.remove('sharing');
+}
+window.onShareEnded = () => { stopShare(); addNote('👀 the window you shared closed, so I stopped looking'); };
+
+$('#share-btn').addEventListener('click', openShare);
+$('#share-voice').addEventListener('click', openShare);
+$('#share-stop').addEventListener('click', stopShare);
 
 // ---------- updates ----------
 

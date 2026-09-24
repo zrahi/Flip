@@ -23,7 +23,7 @@ def selftest(out_path):
     """Used by the build: checks that everything Flip needs made it into the .exe."""
     lines = []
     for mod in ("webview", "clr", "openai", "mcp", "mcp.client.stdio", "faster_whisper", "ctranslate2", "onnxruntime", "numpy",
-                "sounddevice", "edge_tts", "kokoro_onnx", "pystray", "PIL", "brain", "engine", "voice", "store", "storage", "updater"):
+                "sounddevice", "edge_tts", "kokoro_onnx", "pystray", "PIL", "brain", "engine", "voice", "store", "storage", "updater", "screen", "autotest"):
         try:
             __import__(mod)
             lines.append(f"ok {mod}")
@@ -68,6 +68,7 @@ if len(sys.argv) > 2 and sys.argv[1] == "--selftest":
 import webview  # noqa: E402
 from openai import APIConnectionError, APIStatusError  # noqa: E402
 
+import screen  # noqa: E402
 import storage  # noqa: E402
 from updater import Updater  # noqa: E402
 import store  # noqa: E402
@@ -176,6 +177,7 @@ class Api:
         self._chat_hidden = False
         self._stop = threading.Event()
         self._voice_on = False
+        self._share = None  # {"id", "title"} of the screen/window he can see
 
     # ---------- startup info ----------
 
@@ -297,8 +299,16 @@ class Api:
             if time.time() - last[0] > 0.05:
                 flush()
 
+        image, label = None, ""
+        if self._share:
+            image = screen.capture(self._share["id"])
+            label = self._share["title"]
+            if image is None:  # the window got closed
+                self._share = None
+                if self._main:
+                    self._main.evaluate_js("onShareEnded()")
         try:
-            reply, chat, stopped = self._brain.chat(chat_id, text, voice, on_text, self._stop)
+            reply, chat, stopped = self._brain.chat(chat_id, text, voice, on_text, self._stop, image, label)
             flush()
             if self._pet is not None and (self._chat_hidden or voice) and not stopped:
                 self.pet_say(reply)
@@ -319,6 +329,24 @@ class Api:
 
     def stop(self):
         self._stop.set()
+
+    # ---------- screen sharing ----------
+
+    def share_sources(self):
+        if not self._engine.status.get("vision"):
+            return {"error": "my brain can't see pictures yet 👀 (it's still loading, or you're using your own AI server)"}
+        return {"sources": screen.sources(own_titles=(self._settings["name"],))}
+
+    def share_start(self, source_id, title):
+        preview = screen.capture(source_id)
+        if preview is None:
+            return {"error": "couldn't see that one 😵 pick another?"}
+        self._share = {"id": source_id, "title": title}
+        return {"preview": preview}
+
+    def share_stop(self):
+        self._share = None
+        return True
 
     def list_chats(self):
         return store.list_chats()
@@ -542,6 +570,9 @@ class Api:
             self.show_pet()
         if os.environ.get("FLIP_SCREENSHOT"):  # used by the build to check the real windows
             threading.Thread(target=self._screenshot, daemon=True).start()
+        if os.environ.get("FLIP_AUTOTEST"):  # used by the build: clicks through the whole app
+            import autotest
+            threading.Thread(target=autotest.run, args=(self,), daemon=True).start()
 
     def _screenshot(self):
         try:

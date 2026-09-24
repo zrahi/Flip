@@ -51,11 +51,13 @@ def report():
         index = json.loads((MODEL_DIR / "models.json").read_text())
     except (OSError, ValueError):
         index = {}
-    for repo, name in index.items():
-        f = MODEL_DIR / name
-        if f.exists():
-            items.append({"what": f"brain: {repo.split('/')[-1].replace('-GGUF', '')}", "bytes": _size(f),
-                          "in_use": name == running.get("model")})
+    for key, name in index.items():
+        f = MODEL_DIR / name if name else None
+        if f and f.exists():
+            repo, _, eyes = key.partition("#")
+            label = repo.split('/')[-1].replace('-GGUF', '')
+            in_use = (index.get(repo) if eyes else name) == running.get("model")
+            items.append({"what": f"{'eyes for ' if eyes else 'brain: '}{label}", "bytes": _size(f), "in_use": in_use})
     for kind, folder in LLAMA_DIRS.items():
         if folder.exists():
             items.append({"what": f"{'NVIDIA turbo' if kind == 'cuda' else 'Vulkan'} engine", "bytes": _size(folder),
@@ -99,10 +101,12 @@ def clean_up():
     except (OSError, ValueError):
         index = {}
     if running.get("model"):
-        for repo, name in list(index.items()):
-            if name != running["model"]:
-                (MODEL_DIR / name).unlink(missing_ok=True)
-                del index[repo]
+        for key, name in list(index.items()):
+            repo = key.partition("#")[0]
+            if index.get(repo) != running["model"]:
+                if name:
+                    (MODEL_DIR / name).unlink(missing_ok=True)
+                del index[key]
         index_file.write_text(json.dumps(index, indent=1))
         (MODEL_DIR / "model.json").unlink(missing_ok=True)
     if running.get("kind") in LLAMA_DIRS:
