@@ -1,0 +1,65 @@
+name: Build Flip.exe
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller pytest
+
+      - name: Tests
+        run: python -m pytest tests -v
+
+      - name: Real brain test (downloads llama.cpp + a tiny model and chats)
+        run: python tests/e2e_brain.py
+
+      - name: Build Flip.exe
+        run: >
+          pyinstaller --noconfirm --onefile --windowed --name Flip --icon flip.ico
+          --add-data "ui;ui" --add-data "personality.txt;." --add-data "flip.ico;."
+          --collect-all faster_whisper --collect-all ctranslate2 --collect-all onnxruntime
+          --collect-all webview --collect-all pythonnet --collect-all clr_loader
+          --collect-submodules mcp --collect-data edge_tts
+          --hidden-import pystray._win32
+          app.py
+
+      - name: Check Flip.exe has everything
+        shell: pwsh
+        run: |
+          $out = "$env:RUNNER_TEMP\selftest.txt"
+          $p = Start-Process -FilePath dist\Flip.exe -ArgumentList "--selftest", $out -Wait -PassThru
+          Get-Content $out
+          $text = Get-Content $out -Raw
+          if ($text -notmatch "DONE" -or $text -match "FAIL") { throw "selftest failed" }
+          "Flip.exe size: {0:N0} MB" -f ((Get-Item dist\Flip.exe).Length / 1MB)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Flip
+          path: dist/Flip.exe
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release create "v1.${{ github.run_number }}" dist/Flip.exe `
+            --title "Flip v1.${{ github.run_number }}" `
+            --notes "Download **Flip.exe** below and double-click it. First launch downloads his brain (a few GB, one time only)."

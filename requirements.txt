@@ -1,0 +1,9 @@
+pywebview>=6.0
+openai>=1.40
+mcp>=1.2
+faster-whisper>=1.0
+sounddevice>=0.4.6
+numpy
+edge-tts>=6.1
+pystray>=0.19
+pillow

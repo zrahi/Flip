@@ -1,0 +1,228 @@
+"""Flip's built-in brain.
+
+The first time, it downloads llama.cpp (the program that runs AI models) and the
+smartest model the PC's graphics card can handle. After that it just starts it.
+"""
+
+import json
+import logging
+import subprocess
+import sys
+import threading
+import time
+import urllib.request
+import zipfile
+
+from paths import DATA
+
+log = logging.getLogger("flip")
+
+PORT = 8765
+LLAMA_DIR = DATA / "llama"
+MODEL_DIR = DATA / "models"
+HEADERS = {"User-Agent": "Flip/1.0"}
+QUANT = "Q4_K_M"
+CONTEXT = "16384"
+
+# (minimum GPU memory in GB, Hugging Face repo). The first one that fits is used.
+MODELS = [
+    (14, "unsloth/Qwen3-14B-GGUF"),
+    (7, "unsloth/Qwen3-8B-GGUF"),
+    (0, "unsloth/Qwen3-4B-Instruct-2507-GGUF"),
+]
+
+
+def gpu_memory_gb():
+    """Biggest graphics card memory on this PC, read from the Windows registry."""
+    if sys.platform != "win32":
+        return 0.0
+    import winreg
+
+    best = 0
+    base = r"SYSTEM\ControlSet001\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
+    try:
+        root = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, base)
+    except OSError:
+        return 0.0
+    with root:
+        for i in range(winreg.QueryInfoKey(root)[0]):
+            name = winreg.EnumKey(root, i)
+            if not name.isdigit():
+                continue
+            try:
+                with winreg.OpenKey(root, name) as key:
+                    for value in ("HardwareInformation.qwMemorySize", "HardwareInformation.MemorySize"):
+                        try:
+                            size, _ = winreg.QueryValueEx(key, value)
+                        except OSError:
+                            continue
+                        if isinstance(size, bytes):
+                            size = int.from_bytes(size[:8], "little")
+                        best = max(best, int(size))
+                        break
+            except OSError:
+                continue
+    return best / 1024 ** 3
+
+
+def pick_model(vram_gb):
+    return next(repo for min_gb, repo in MODELS if vram_gb >= min_gb)
+
+
+def _get_json(url):
+    with urllib.request.urlopen(urllib.request.Request(url, headers=HEADERS), timeout=30) as r:
+        return json.load(r)
+
+
+def model_download(repo):
+    """(url, file name, size) of the Q4_K_M model file in a Hugging Face repo."""
+    files = _get_json(f"https://huggingface.co/api/models/{repo}/tree/main")
+    for f in files:
+        path = f.get("path", "")
+        if path.lower().endswith(".gguf") and QUANT.lower() in path.lower() and "/" not in path and "mmproj" not in path.lower():
+            return f"https://huggingface.co/{repo}/resolve/main/{path}", path, f.get("size", 0)
+    raise RuntimeError(f"no {QUANT} model file in {repo}")
+
+
+def llama_download():
+    """(url, size) of the newest llama.cpp Windows build (Vulkan: uses any GPU, falls back to CPU)."""
+    release = _get_json("https://api.github.com/repos/ggml-org/llama.cpp/releases/latest")
+    for suffix in ("-bin-win-vulkan-x64.zip", "-bin-win-cpu-x64.zip"):
+        for a in release["assets"]:
+            if a["name"].endswith(suffix):
+                return a["browser_download_url"], a["size"]
+    raise RuntimeError("couldn't find llama.cpp for Windows")
+
+
+def download(url, dest, on_progress):
+    """Download with resume support, so a dropped connection doesn't start over."""
+    part = dest.with_name(dest.name + ".part")
+    have = part.stat().st_size if part.exists() else 0
+    headers = dict(HEADERS)
+    if have:
+        headers["Range"] = f"bytes={have}-"
+    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60) as r:
+        if have and r.status != 206:
+            have = 0  # server ignored the resume request
+        total = have + int(r.headers.get("Content-Length") or 0)
+        with open(part, "ab" if have else "wb") as f:
+            done = have
+            while True:
+                chunk = r.read(1 << 20)
+                if not chunk:
+                    break
+                f.write(chunk)
+                done += len(chunk)
+                on_progress(done, total)
+    part.replace(dest)
+
+
+def _gb(n):
+    return f"{n / 1e9:.1f}"
+
+
+class Engine:
+    def __init__(self, settings):
+        self._s = settings
+        self._proc = None
+        self.status = {"state": "starting", "title": "waking up…", "detail": "", "progress": None}
+        self.url = settings.get("llm_url") or f"http://127.0.0.1:{PORT}/v1"
+
+    def start(self):
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _set(self, state, title, detail="", progress=None):
+        self.status = {"state": state, "title": title, "detail": detail, "progress": progress}
+
+    def _run(self):
+        try:
+            if self._s.get("llm_url"):
+                self._set("ready", "ready")  # using the user's own AI server (LM Studio, Ollama…)
+                return
+            if self._healthy():
+                self._set("ready", "ready")
+                return
+            server = self._ensure_llama()
+            model = self._ensure_model()
+            self._launch(server, model)
+        except Exception as e:
+            log.exception("Brain setup failed")
+            self._set("error", "my brain didn't load 😵", str(e))
+
+    def _ensure_llama(self):
+        found = list(LLAMA_DIR.rglob("llama-server.exe")) if LLAMA_DIR.exists() else []
+        if found:
+            return found[0]
+        self._set("downloading", "downloading my brain engine ⚙️", "", 0)
+        url, _ = llama_download()
+        LLAMA_DIR.mkdir(parents=True, exist_ok=True)
+        zpath = DATA / "llama.zip"
+        download(url, zpath, lambda d, t: self._set("downloading", "downloading my brain engine ⚙️",
+                                                    f"{_gb(d)} / {_gb(t)} GB", d / t if t else None))
+        with zipfile.ZipFile(zpath) as z:
+            z.extractall(LLAMA_DIR)
+        zpath.unlink()
+        found = list(LLAMA_DIR.rglob("llama-server.exe"))
+        if not found:
+            raise RuntimeError("llama-server.exe missing from the download")
+        return found[0]
+
+    def _ensure_model(self):
+        MODEL_DIR.mkdir(parents=True, exist_ok=True)
+        info_file = MODEL_DIR / "model.json"
+        wanted = self._s.get("local_model", "auto")
+        info = {}
+        try:
+            info = json.loads(info_file.read_text())
+        except (OSError, ValueError):
+            pass
+        if info.get("file") and (MODEL_DIR / info["file"]).exists() and wanted in ("auto", info.get("repo")):
+            return MODEL_DIR / info["file"]
+
+        vram = gpu_memory_gb()
+        repo = pick_model(vram) if wanted == "auto" else wanted
+        log.info("GPU memory %.1f GB, picked %s", vram, repo)
+        self._set("downloading", "downloading my brain 🧠", "finding the best one for your PC…", None)
+        url, name, _ = model_download(repo)
+        title = "downloading my brain 🧠"
+        download(url, MODEL_DIR / name, lambda d, t: self._set("downloading", title,
+                                                              f"{_gb(d)} / {_gb(t)} GB", d / t if t else None))
+        info_file.write_text(json.dumps({"repo": repo, "file": name}))
+        return MODEL_DIR / name
+
+    def _launch(self, server, model):
+        log_file = open(DATA / "brain.log", "ab")
+        for gpu in (True, False):
+            self._set("loading", "loading my brain into memory…", "almost there", None)
+            args = [str(server), "-m", str(model), "--host", "127.0.0.1", "--port", str(PORT),
+                    "-c", CONTEXT, "--reasoning", "off", "--no-webui"]
+            if not gpu:
+                args += ["-ngl", "0"]
+            self._proc = subprocess.Popen(
+                args, cwd=str(server.parent), stdout=log_file, stderr=subprocess.STDOUT,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            deadline = time.time() + 600
+            while time.time() < deadline and self._proc.poll() is None:
+                if self._healthy():
+                    self._set("ready", "ready")
+                    return
+                time.sleep(1)
+            self.stop()
+            log.warning("Brain server stopped (gpu=%s), exit code %s", gpu, self._proc.returncode)
+        raise RuntimeError("the brain crashed while starting. Details are in brain.log in Flip's folder.")
+
+    def _healthy(self):
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/health", timeout=2) as r:
+                return r.status == 200
+        except Exception:
+            return False
+
+    def stop(self):
+        if self._proc and self._proc.poll() is None:
+            self._proc.terminate()
+            try:
+                self._proc.wait(10)
+            except subprocess.TimeoutExpired:
+                self._proc.kill()
