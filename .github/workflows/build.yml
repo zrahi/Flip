@@ -36,7 +36,7 @@ jobs:
             "--noconfirm", "--onefile", "--windowed", "--name", "Flip", "--icon", "flip.ico",
             "--add-data", "ui;ui", "--add-data", "personality.txt;.", "--add-data", "flip.ico;.",
             "--collect-all", "faster_whisper", "--collect-all", "ctranslate2", "--collect-all", "onnxruntime",
-            "--collect-all", "webview", "--collect-submodules", "mcp", "--collect-data", "edge_tts",
+            "--collect-all", "webview", "--collect-data", "edge_tts", "--hidden-import", "mcp.client.stdio",
             "--hidden-import", "pystray._win32", "--hidden-import", "clr",
             "app.py"
           )
