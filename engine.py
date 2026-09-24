@@ -31,6 +31,16 @@ MODELS = [
     (7, "unsloth/Qwen3-8B-GGUF"),
     (0, "unsloth/Qwen3-4B-Instruct-2507-GGUF"),
 ]
+# Fast mode: a smaller brain that answers much quicker.
+FAST = {
+    "unsloth/Qwen3-14B-GGUF": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
+    "unsloth/Qwen3-8B-GGUF": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
+    "unsloth/Qwen3-4B-Instruct-2507-GGUF": "unsloth/Qwen3-1.7B-GGUF",
+}
+
+
+def short_name(repo):
+    return repo.split("/")[-1].replace("-GGUF", "").replace("-Instruct-2507", "")
 
 
 def gpu_memory_gb():
@@ -134,29 +144,61 @@ class Engine:
     def __init__(self, settings):
         self._s = settings
         self._proc = None
+        self._lock = threading.Lock()
         self.status = {"state": "starting", "title": "waking up…", "detail": "", "progress": None}
         self.url = settings.get("llm_url") or f"http://127.0.0.1:{PORT}/v1"
+        self.model_name = ""
 
     def start(self):
         threading.Thread(target=self._run, daemon=True).start()
 
+    def set_fast(self, on):
+        self._s["fast_mode"] = bool(on)
+        if self._s.get("llm_url"):
+            return
+        self._set("loading", "switching brains…", "⚡ fast mode" if on else "🧠 smart mode")
+        threading.Thread(target=lambda: (self.stop(), self._run()), daemon=True).start()
+
     def _set(self, state, title, detail="", progress=None):
-        self.status = {"state": state, "title": title, "detail": detail, "progress": progress}
+        self.status = {"state": state, "title": title, "detail": detail, "progress": progress,
+                       "model": self.model_name, "fast": bool(self._s.get("fast_mode"))}
 
     def _run(self):
+        if not self._lock.acquire(blocking=False):
+            return
         try:
             if self._s.get("llm_url"):
+                self.model_name = "your own server"
                 self._set("ready", "ready")  # using the user's own AI server (LM Studio, Ollama…)
                 return
-            if self._healthy():
-                self._set("ready", "ready")
-                return
             server = self._ensure_llama()
-            model = self._ensure_model()
+            repo = self._pick_repo()
+            self.model_name = short_name(repo)
+            model = self._ensure_model(repo)
+            if self._healthy():
+                if self._serving(model):
+                    self._set("ready", "ready")
+                    return
+                self._kill_stray()  # a leftover brain from last time is running the wrong model
             self._launch(server, model)
         except Exception as e:
             log.exception("Brain setup failed")
             self._set("error", "my brain didn't load 😵", str(e))
+        finally:
+            self._lock.release()
+
+    def _pick_repo(self):
+        wanted = self._s.get("local_model", "auto")
+        if wanted and wanted != "auto":
+            main = wanted
+        else:
+            main = self._s.get("auto_model")
+            if not main:
+                vram = gpu_memory_gb()
+                main = pick_model(vram)
+                log.info("GPU memory %.1f GB, picked %s", vram, main)
+                self._s["auto_model"] = main
+        return FAST.get(main, main) if self._s.get("fast_mode") else main
 
     def _ensure_llama(self):
         found = list(LLAMA_DIR.rglob("llama-server.exe")) if LLAMA_DIR.exists() else []
@@ -176,27 +218,28 @@ class Engine:
             raise RuntimeError("llama-server.exe missing from the download")
         return found[0]
 
-    def _ensure_model(self):
+    def _ensure_model(self, repo):
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
-        info_file = MODEL_DIR / "model.json"
-        wanted = self._s.get("local_model", "auto")
-        info = {}
+        index_file = MODEL_DIR / "models.json"
         try:
-            info = json.loads(info_file.read_text())
+            index = json.loads(index_file.read_text())
         except (OSError, ValueError):
+            index = {}
+        try:  # older Flip versions kept a single model in model.json
+            old = json.loads((MODEL_DIR / "model.json").read_text())
+            index.setdefault(old["repo"], old["file"])
+        except (OSError, ValueError, KeyError):
             pass
-        if info.get("file") and (MODEL_DIR / info["file"]).exists() and wanted in ("auto", info.get("repo")):
-            return MODEL_DIR / info["file"]
-
-        vram = gpu_memory_gb()
-        repo = pick_model(vram) if wanted == "auto" else wanted
-        log.info("GPU memory %.1f GB, picked %s", vram, repo)
-        self._set("downloading", "downloading my brain 🧠", "finding the best one for your PC…", None)
+        name = index.get(repo)
+        if name and (MODEL_DIR / name).exists():
+            return MODEL_DIR / name
+        title = "downloading my fast brain ⚡" if self._s.get("fast_mode") else "downloading my brain 🧠"
+        self._set("downloading", title, "finding the best one for your PC…", None)
         url, name, _ = model_download(repo)
-        title = "downloading my brain 🧠"
         download(url, MODEL_DIR / name, lambda d, t: self._set("downloading", title,
                                                               f"{_gb(d)} / {_gb(t)} GB", d / t if t else None))
-        info_file.write_text(json.dumps({"repo": repo, "file": name}))
+        index[repo] = name
+        index_file.write_text(json.dumps(index, indent=1))
         return MODEL_DIR / name
 
     def _launch(self, server, model):
@@ -227,6 +270,19 @@ class Engine:
                 return r.status == 200
         except Exception:
             return False
+
+    def _serving(self, model):
+        try:
+            ids = [m["id"] for m in _get_json(f"http://127.0.0.1:{PORT}/v1/models").get("data", [])]
+            return any(model.name in i or i in model.name for i in ids)
+        except Exception:
+            return False
+
+    def _kill_stray(self):
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/F", "/IM", "llama-server.exe"], capture_output=True,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            time.sleep(1)
 
     def stop(self):
         if self._proc and self._proc.poll() is None:

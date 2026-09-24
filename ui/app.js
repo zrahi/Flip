@@ -1,23 +1,27 @@
 const $ = (s) => document.querySelector(s);
 const body = document.body;
 const stage = $('#stage'), statusEl = $('#status');
-const chatEl = $('#chat'), input = $('#input'), footer = $('footer');
+const chatEl = $('#chat'), thread = $('#thread'), input = $('#input'), footer = $('footer');
 const micBtn = $('#mic-btn'), sendBtn = $('#send-btn'), voiceBtn = $('#voice-btn'), muteBtn = $('#mute-btn');
 
 const pet = new Pet(stage, $('#pet-host'));
 
 let api = null;
 let petName = 'Flip';
+let me = null;               // the profile that's chatting
 let chatId = null;
-let chatHasMessages = false;
+let chatTitle = 'New chat';
+let allChats = [];
 let busy = false;
 let listening = false;
 let voiceOn = false;
 let muted = false;
+let fast = false;
 let audioCtx = null;
 let currentAudio = null;
 let speakDone = null;
 let levelTimer = 0;
+let stream = null;           // the reply that's being written right now: {b, text}
 
 const STATUS = {
   idle: 'vibing',
@@ -31,11 +35,15 @@ const STATUS = {
 };
 const VOICE_STATUS = { listening: 'listening…', thinking: 'thinking…', working: 'working on it 🔧', talking: 'talking · tap me to cut me off' };
 const POKES = ['ayo 😭', 'that tickles fr', 'bro I\'m tryna vibe', 'hehe', 'poke me again, I dare you', 'W poke ngl', 'hey!! 😤'];
-const GREETINGS = ['yooo what\'s good 😤', 'ayy you\'re back!!', 'let\'s cook today fr', 'the GOAT has arrived 🐐'];
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
+const local = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+};
 
-try { muted = localStorage.getItem('flip-muted') === '1'; } catch (e) {}
+muted = local.get('flip-muted') === '1';
 muteBtn.classList.toggle('muted', muted);
+if (local.get('flip-sidebar') === 'closed') body.classList.add('sb-collapsed');
 
 // ---------- pet ----------
 
@@ -62,7 +70,6 @@ stage.addEventListener('mousemove', (e) => pet.lookAt(e.clientX, e.clientY));
 stage.addEventListener('mouseleave', () => pet.lookAway());
 pet.svg.addEventListener('mouseenter', () => { if (calm() && ['idle', 'sleeping'].includes(pet.state)) setState('excited'); });
 pet.svg.addEventListener('mouseleave', () => { if (pet.state === 'excited') setState('idle'); });
-
 pet.svg.addEventListener('click', () => {
   if (voiceOn && pet.state === 'talking') { stopSpeaking(); return; }  // cut him off
   if (!calm() || pet.state === 'talking') return;
@@ -71,7 +78,7 @@ pet.svg.addEventListener('click', () => {
   else setState('excited', pick(POKES));
 });
 
-// ---------- chat rendering ----------
+// ---------- message rendering ----------
 
 function esc(s) {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -97,6 +104,9 @@ function format(text) {
   return html;
 }
 
+const nearBottom = () => chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < 80;
+const toBottom = () => { chatEl.scrollTop = chatEl.scrollHeight; };
+
 function addMsg(role, text, extra = '') {
   const row = document.createElement('div');
   row.className = `msg ${role} ${extra}`;
@@ -110,24 +120,37 @@ function addMsg(role, text, extra = '') {
   b.className = 'b';
   b.innerHTML = format(text);
   row.appendChild(b);
-  chatEl.appendChild(row);
-  chatEl.scrollTop = chatEl.scrollHeight;
+  thread.appendChild(row);
+  toBottom();
+  return row;
 }
 
 function addNote(text) {
   const n = document.createElement('div');
   n.className = 'note';
   n.textContent = text;
-  chatEl.appendChild(n);
-  chatEl.scrollTop = chatEl.scrollHeight;
+  thread.appendChild(n);
+  toBottom();
+}
+
+function setChatting(on) {
+  body.classList.toggle('chatting', on);
+}
+
+function setTitle(title) {
+  chatTitle = title || 'New chat';
+  $('#chat-title').textContent = chatTitle;
+  document.title = chatTitle === 'New chat' ? petName : `${chatTitle} · ${petName}`;
 }
 
 function showChat(chat) {
   chatId = chat.id;
-  chatHasMessages = chat.messages.length > 0;
-  chatEl.innerHTML = '';
+  setTitle(chat.messages.length ? chat.title : 'New chat');
+  thread.innerHTML = '';
   for (const m of chat.messages) addMsg(m.role === 'user' ? 'user' : 'pet', m.content);
-  if (!chatHasMessages) addMsg('pet', `yooo I'm ${petName} 😤 type something, hit the mic, or tap the voice button to call me`);
+  setChatting(chat.messages.length > 0);
+  $('#empty-title').textContent = me ? `what's good, ${me.name}? 👋` : 'what\'s good? 👋';
+  renderChatList();
 }
 
 chatEl.addEventListener('click', async (e) => {
@@ -148,6 +171,16 @@ chatEl.addEventListener('click', async (e) => {
   setTimeout(() => { btn.textContent = 'copy'; }, 1500);
 });
 
+// Called from Python while he writes: shows the reply word by word.
+window.onText = (piece) => {
+  if (!stream) return;
+  const stick = nearBottom();
+  stream.text += piece;
+  stream.b.innerHTML = format(stream.text);
+  if (pet.state !== 'working') setState('thinking', 'typing…');
+  if (stick) toBottom();
+};
+
 // Called from Python when he uses a tool (memory, Roblox Studio…).
 window.onTool = (name) => {
   if (name === 'remember') { addNote('🧠 saved to memory'); return; }
@@ -160,8 +193,7 @@ window.onTool = (name) => {
 
 function setBusy(b) {
   busy = b;
-  sendBtn.disabled = b;
-  voiceBtn.disabled = b;
+  body.classList.toggle('busy', b);
   micBtn.disabled = b && !listening;
 }
 
@@ -170,6 +202,7 @@ async function send(text) {
   if (!text || busy || !api) return;
   pet.wake();
   stopSpeaking();
+  setChatting(true);
   addMsg('user', text);
   if (voiceOn) { $('#cap-you').textContent = `“${text}”`; $('#cap-pet').textContent = ''; }
   input.value = '';
@@ -177,27 +210,44 @@ async function send(text) {
   setBusy(true);
   setState('thinking');
 
+  const row = addMsg('pet', '');
+  const b = row.querySelector('.b');
+  b.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+  stream = { b, text: '' };
+
   let res;
   try { res = await api.send(chatId, text, voiceOn); } catch (e) { res = { error: `something broke 😭 (${e})` }; }
+  stream = null;
 
   if (res.error) {
     setBusy(false);
-    addMsg('pet', res.error, 'error');
+    row.classList.add('error');
+    b.innerHTML = format(res.error);
     if (voiceOn) $('#cap-pet').textContent = res.error;
     setState('idle', 'uh oh 😵');
     return;
   }
 
-  addMsg('pet', res.reply);
+  b.innerHTML = format(res.reply);
+  if (res.stopped) row.insertAdjacentHTML('beforeend', '<div class="stopped">stopped</div>');
   if (voiceOn) $('#cap-pet').textContent = res.reply;
-  if (!chatHasMessages) { chatHasMessages = true; refreshChatList(); }
-  if (!muted || voiceOn) {
+  if (chatTitle === 'New chat' || !allChats.some((c) => c.id === chatId)) {
+    setTitle(res.title);
+    refreshChatList();
+  }
+  if (!res.stopped && (!muted || voiceOn)) {
     if (!voiceOn) statusEl.textContent = 'warming up the vocals…';
     await speak(res.reply);
   }
   setBusy(false);
-  if (!voiceOn && /let'?s go|🔥|goated|\bW\b|hype|🐐|💪|🎉/i.test(res.reply)) flash('happy', 1300);
+  if (!voiceOn && !res.stopped && /let'?s go|🔥|goated|\bW\b|hype|🐐|💪|🎉/i.test(res.reply)) flash('happy', 1300);
   else setState('idle');
+}
+
+function stopReply() {
+  if (!api) return;
+  api.stop();
+  stopSpeaking();
 }
 
 // ---------- voice out ----------
@@ -207,6 +257,7 @@ function stopSpeaking() {
   if (window.speechSynthesis) speechSynthesis.cancel();
   if (speakDone) speakDone();
 }
+window.stopSpeaking = stopSpeaking;
 
 async function speak(text) {
   let mp3 = null;
@@ -280,6 +331,7 @@ function speakWithWindows(text) {
     const voices = speechSynthesis.getVoices();
     u.voice = voices.find((v) => /Guy|Andrew|Brian|Christopher|Mark|David|Male/i.test(v.name) && /^en/i.test(v.lang)) || null;
     u.rate = 1.1;
+    u.pitch = 1.6;  // he's small, so he sounds small
     let timer = 0;
     const done = () => { clearInterval(timer); pet.mouth(0); speakDone = null; resolve(); };
     speakDone = () => { speechSynthesis.cancel(); done(); };
@@ -301,10 +353,11 @@ async function toggleMic() {
   if (!listening) {
     stopSpeaking();
     const r = await api.listen_start();
-    if (r.error) { addMsg('pet', r.error, 'error'); return; }
+    if (r.error) { setChatting(true); addMsg('pet', r.error, 'error'); return; }
     listening = true;
     micBtn.classList.add('on');
     setBusy(true);
+    body.classList.remove('busy');  // no stop button while recording, the mic button stops it
     setState('listening');
     pollLevel(true);
   } else {
@@ -314,7 +367,7 @@ async function toggleMic() {
     setState('thinking', 'turning your words into text…');
     const r = await api.listen_stop();
     setBusy(false);
-    if (r.error) { addMsg('pet', r.error, 'error'); setState('idle'); return; }
+    if (r.error) { setChatting(true); addMsg('pet', r.error, 'error'); setState('idle'); return; }
     if (!r.text) { setState('idle', 'didn\'t catch that 👂 try again?'); return; }
     await send(r.text);
   }
@@ -329,9 +382,10 @@ function pollLevel(on) {
 }
 
 async function startVoice() {
-  if (!api || busy || voiceOn) return;
+  if (!api || busy || voiceOn || !me) return;
   closeAll();
   voiceOn = true;
+  api.voice_state(true);
   body.classList.add('voice');
   $('#cap-you').textContent = '';
   $('#cap-pet').textContent = pick(['yo, I\'m listening 👂', 'talk to me bro', 'what\'s good? I\'m all ears']);
@@ -342,7 +396,7 @@ async function startVoice() {
     const r = await api.voice_listen();
     pollLevel(false);
     if (!voiceOn || r.ended) break;
-    if (r.error) { $('#cap-pet').textContent = r.error; addMsg('pet', r.error, 'error'); break; }
+    if (r.error) { $('#cap-pet').textContent = r.error; setChatting(true); addMsg('pet', r.error, 'error'); break; }
     if (r.text) await send(r.text);
   }
   endVoice();
@@ -351,18 +405,25 @@ async function startVoice() {
 function endVoice() {
   if (!voiceOn) return;
   voiceOn = false;
+  api.voice_state(false);
   pollLevel(false);
   api.voice_cancel();
+  if (busy) api.stop();
   stopSpeaking();
   body.classList.remove('voice');
   if (!busy) setState('idle');
 }
 
-// ---------- input ----------
+// The voice button on the desktop pet.
+window.toggleVoiceFromPet = () => { if (voiceOn) endVoice(); else startVoice(); };
+
+// ---------- composer ----------
 
 function autosize() {
   input.style.height = 'auto';
-  input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
+  const h = Math.min(input.scrollHeight, 180);
+  input.style.height = `${h}px`;
+  input.style.overflowY = input.scrollHeight > 180 ? 'auto' : 'hidden';
   footer.classList.toggle('has-text', input.value.trim().length > 0);
 }
 
@@ -374,12 +435,17 @@ input.addEventListener('keydown', (e) => {
   }
 });
 sendBtn.addEventListener('click', () => send(input.value));
+$('#stop-btn').addEventListener('click', stopReply);
 micBtn.addEventListener('click', toggleMic);
 voiceBtn.addEventListener('click', startVoice);
 $('#end-voice').addEventListener('click', endVoice);
+for (const chip of document.querySelectorAll('.chip-btn')) {
+  chip.addEventListener('click', () => send(chip.textContent.replace(/^\P{L}+/u, '')));
+}
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (voiceOn) endVoice();
+  else if (busy && !listening) stopReply();
   else closeAll();
 });
 
@@ -387,63 +453,154 @@ muteBtn.addEventListener('click', () => {
   muted = !muted;
   muteBtn.classList.toggle('muted', muted);
   if (muted) stopSpeaking();
-  try { localStorage.setItem('flip-muted', muted ? '1' : '0'); } catch (e) {}
+  local.set('flip-muted', muted ? '1' : '0');
   if (calm()) setState('idle', muted ? 'ok ok I\'ll stay quiet 🤐' : 'voice back on 🗣️');
 });
 
-$('#reset-btn').title = 'New chat';
-$('#reset-btn').addEventListener('click', newChat);
+// ---------- sidebar: chats ----------
 
-// ---------- chats drawer ----------
+const narrow = () => window.matchMedia('(max-width: 820px)').matches;
 
 function closeAll() {
-  body.classList.remove('drawer-open', 'panel-open');
+  body.classList.remove('sb-open', 'panel-open');
+  $('#me-menu').hidden = true;
 }
 
+function toggleSidebar(open) {
+  if (narrow()) {
+    body.classList.toggle('sb-open', open);
+  } else {
+    body.classList.toggle('sb-collapsed', !open);
+    local.set('flip-sidebar', open ? 'open' : 'closed');
+  }
+}
+$('#sb-open').addEventListener('click', () => { refreshChatList(); toggleSidebar(true); });
+$('#sb-close').addEventListener('click', () => toggleSidebar(false));
+$('#scrim').addEventListener('click', closeAll);
+
 async function refreshChatList() {
-  const chats = await api.list_chats();
-  const list = $('#chat-list');
+  if (!api || !me) return;
+  allChats = await api.list_chats();
+  renderChatList();
+}
+
+function renderChatList() {
+  const q = $('#chat-search').value.trim().toLowerCase();
+  const chats = allChats.filter((c) => !q || c.title.toLowerCase().includes(q));
+  const pinned = chats.filter((c) => c.pinned), rest = chats.filter((c) => !c.pinned);
+  $('#pinned-sec').hidden = !pinned.length;
+  fillList($('#pinned-list'), pinned);
+  fillList($('#chat-list'), rest);
+  if (!rest.length) $('#chat-list').innerHTML = `<div class="empty-list">${q ? 'no chats match' : 'no chats yet'}</div>`;
+}
+
+function fillList(list, chats) {
   list.innerHTML = '';
-  if (!chats.length) list.innerHTML = '<div class="empty">no chats yet</div>';
   for (const c of chats) {
     const item = document.createElement('div');
     item.className = 'chat-item' + (c.id === chatId ? ' current' : '');
-    item.innerHTML = `<span class="t"></span><button class="del" title="Delete chat">🗑</button>`;
+    item.innerHTML = '<span class="t"></span><span class="acts">' +
+      `<button data-a="pin" title="${c.pinned ? 'Unpin' : 'Pin'}">${c.pinned ? '📍' : '📌'}</button>` +
+      '<button data-a="rename" title="Rename">✏️</button><button data-a="delete" title="Delete">🗑</button></span>';
     item.querySelector('.t').textContent = c.title;
-    item.addEventListener('click', async (e) => {
-      if (e.target.closest('.del')) {
-        await api.delete_chat(c.id);
-        if (c.id === chatId) showChat(await api.new_chat());
-        refreshChatList();
-        return;
-      }
-      if (busy) return;
-      showChat(await api.open_chat_id(c.id));
-      closeAll();
-    });
+    item.addEventListener('click', (e) => chatItemClick(e, c, item));
     list.appendChild(item);
   }
 }
 
-async function newChat() {
-  if (busy || !api) return;
-  closeAll();
-  if (chatHasMessages) showChat(await api.new_chat());
-  flash('happy', 1300, 'fresh chat, who dis 😎');
+async function chatItemClick(e, c, item) {
+  const act = e.target.closest('button')?.dataset.a;
+  if (act === 'pin') { allChats = await api.pin_chat(c.id, !c.pinned); renderChatList(); return; }
+  if (act === 'delete') {
+    allChats = await api.delete_chat(c.id);
+    if (c.id === chatId) showChat(await api.new_chat());
+    else renderChatList();
+    return;
+  }
+  if (act === 'rename') { renameInList(c, item); return; }
+  if (e.target.tagName === 'INPUT' || busy || voiceOn) return;
+  showChat(await api.open_chat_id(c.id));
+  if (narrow()) closeAll();
 }
 
-$('#menu-btn').addEventListener('click', () => {
-  if (voiceOn) return;
-  refreshChatList();
-  body.classList.add('drawer-open');
-});
-$('#scrim').addEventListener('click', closeAll);
-$('#new-chat').addEventListener('click', newChat);
+function renameInList(c, item) {
+  const box = document.createElement('input');
+  box.value = c.title;
+  box.maxLength = 60;
+  item.querySelector('.t').replaceWith(box);
+  box.focus();
+  box.select();
+  let done = false;
+  const finish = async (save) => {
+    if (done) return;
+    done = true;
+    if (save && box.value.trim()) {
+      allChats = await api.rename_chat(c.id, box.value.trim());
+      if (c.id === chatId) setTitle(box.value.trim());
+    }
+    renderChatList();
+  };
+  box.addEventListener('keydown', (e) => { if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); });
+  box.addEventListener('blur', () => finish(true));
+}
 
-// ---------- memory + settings ----------
+$('#chat-search').addEventListener('input', renderChatList);
+
+async function newChat() {
+  if (!api || !me) return;
+  if (busy) stopReply();
+  if (voiceOn) endVoice();
+  showChat(await api.new_chat());
+  input.value = '';
+  autosize();
+  input.focus();
+  if (narrow()) closeAll();
+  setState('idle', 'fresh chat, who dis 😎');
+}
+$('#new-chat').addEventListener('click', newChat);
+$('#reset-btn').addEventListener('click', newChat);
+
+// Rename the current chat by clicking its title.
+$('#chat-title').addEventListener('click', () => {
+  if (!allChats.some((c) => c.id === chatId)) return;  // nothing to rename until the chat has a message
+  const box = $('#title-edit');
+  box.value = chatTitle;
+  box.hidden = false;
+  $('#chat-title').hidden = true;
+  box.focus();
+  box.select();
+});
+async function finishTitle(save) {
+  const box = $('#title-edit');
+  if (box.hidden) return;
+  box.hidden = true;
+  $('#chat-title').hidden = false;
+  if (save && box.value.trim() && box.value.trim() !== chatTitle) {
+    setTitle(box.value.trim());
+    allChats = await api.rename_chat(chatId, box.value.trim());
+    renderChatList();
+  }
+}
+$('#title-edit').addEventListener('keydown', (e) => { if (e.key === 'Enter') finishTitle(true); if (e.key === 'Escape') finishTitle(false); });
+$('#title-edit').addEventListener('blur', () => finishTitle(true));
+
+// ---------- sidebar: profile menu, memory, settings ----------
+
+$('#me-btn').addEventListener('click', () => { $('#me-menu').hidden = !$('#me-menu').hidden; });
+$('#me-menu').addEventListener('click', (e) => {
+  const act = e.target.closest('button')?.dataset.act;
+  $('#me-menu').hidden = true;
+  if (act === 'memory') openMemory();
+  if (act === 'settings') openSettings();
+  if (act === 'switch') switchProfile();
+  if (act === 'logout') logOut();
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.sb-foot')) $('#me-menu').hidden = true;
+});
 
 function openPanel(which) {
-  body.classList.remove('drawer-open');
+  body.classList.remove('sb-open');
   $('#panel').dataset.show = which;
   $('#panel-title').textContent = which === 'memory' ? '🧠 What I remember' : '⚙️ Settings';
   body.classList.add('panel-open');
@@ -464,10 +621,10 @@ function renderMemories(mems) {
   }
 }
 
-$('#memory-btn').addEventListener('click', async () => {
+async function openMemory() {
   openPanel('memory');
   renderMemories(await api.memories());
-});
+}
 async function addMemory() {
   const v = $('#mem-input').value.trim();
   if (!v) return;
@@ -477,24 +634,47 @@ async function addMemory() {
 $('#mem-add').addEventListener('click', addMemory);
 $('#mem-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') addMemory(); });
 
-$('#settings-btn').addEventListener('click', async () => {
+async function openSettings() {
   const s = await api.get_settings();
   $('#set-name').value = s.name;
   $('#set-voice').value = s.voice;
+  $('#set-style').value = s.voice_style || 'cute';
   $('#set-roblox').checked = !!s.roblox_studio;
   $('#set-note').textContent = '';
   $('#pw-note').textContent = '';
+  const b = await api.brain_status();
+  $('#brain-info').textContent = b.model ? `brain: ${b.model}${b.fast ? ' (fast mode)' : ''}` : '';
   openPanel('settings');
-});
+}
 $('#set-save').addEventListener('click', async () => {
   await api.save_settings({
     name: $('#set-name').value.trim() || 'Flip',
     voice: $('#set-voice').value,
+    voice_style: $('#set-style').value,
     roblox_studio: $('#set-roblox').checked,
   });
-  $('#set-note').textContent = 'saved ✓ close and reopen me to apply everything 🔁';
+  $('#set-note').textContent = 'saved ✓ voice changes work right away, the rest after you reopen me 🔁';
 });
 $('#set-folder').addEventListener('click', () => api.open_folder());
+$('#pw-save').addEventListener('click', async () => {
+  const r = await api.change_password($('#pw-old').value, $('#pw-new').value);
+  $('#pw-note').textContent = r.error || 'password changed ✓';
+  if (!r.error) { $('#pw-old').value = ''; $('#pw-new').value = ''; }
+});
+
+// ---------- fast mode ----------
+
+function showFast(on) {
+  fast = !!on;
+  $('#fast-btn').classList.toggle('on', fast);
+  $('#fast-btn').title = fast ? 'Fast mode is on: quicker, a bit less smart. Click for smart mode.' : 'Fast mode: a smaller brain that answers way quicker';
+}
+$('#fast-btn').addEventListener('click', async () => {
+  if (busy || voiceOn) return;
+  const s = await api.set_fast(!fast);
+  showFast(s.fast);
+  watchBrain();
+});
 
 // ---------- desktop pet ----------
 
@@ -507,15 +687,16 @@ $('#desk-btn').addEventListener('click', async () => {
   if (!visible) flash('happy', 1300, 'I\'m on your desktop now 😎 close this window and I\'ll stay');
 });
 
-// ---------- first-run brain setup ----------
+// ---------- brain setup ----------
 
 async function watchBrain() {
   let s;
   try { s = await api.brain_status(); } catch (e) { setTimeout(watchBrain, 1000); return; }
+  if ('fast' in s) showFast(s.fast);
   if (s.state === 'ready') {
     if (body.classList.contains('setup')) {
       body.classList.remove('setup', 'setup-error');
-      flash('happy', 1400, 'brain loaded, let\'s cook 🧠🔥');
+      flash('happy', 1400, fast ? 'fast mode on ⚡ let\'s go' : 'brain loaded, let\'s cook 🧠🔥');
     }
     return;
   }
@@ -527,7 +708,7 @@ async function watchBrain() {
   bar.classList.toggle('pulse', s.progress == null && s.state !== 'error');
   bar.style.width = s.progress == null ? '' : `${Math.round(s.progress * 100)}%`;
   $('#setup-retry').hidden = s.state !== 'error';
-  $('#setup-note').hidden = s.state === 'error';
+  $('#setup-note').hidden = s.state === 'error' || s.state === 'loading';
   if (pet.state !== 'working' && s.state !== 'error') setState('working', ' ');
   statusEl.textContent = s.state === 'error' ? 'uh oh 😵' : 'setting up…';
   if (s.state !== 'error') setTimeout(watchBrain, 500);
@@ -537,19 +718,6 @@ $('#setup-retry').addEventListener('click', async () => {
   await api.retry_brain();
   setTimeout(watchBrain, 300);
 });
-
-// ---------- startup ----------
-
-async function pollRoblox() {
-  let s;
-  try { s = await api.status(); } catch (e) { return; }
-  const dot = $('#roblox-dot');
-  const state = s.roblox;
-  dot.className = 'dot' + (state === 'connected' ? ' on' : state.startsWith('error') ? ' err' : '');
-  dot.title = `Roblox Studio: ${state}`;
-  dot.hidden = state === 'off';
-  if (state === 'starting') setTimeout(pollRoblox, 2000);
-}
 
 // ---------- log in / create account ----------
 
@@ -586,17 +754,20 @@ async function submitAuth() {
 
 function openAccount(acct) {
   $('#acct-name').textContent = `@${acct.username}`;
+  $('#me-acct').textContent = `@${acct.username}`;
   const only = acct.profiles.length === 1 && !acct.profiles[0].has_pin ? acct.profiles[0] : null;
   if (only) api.enter_profile(only.id, '').then(enterWith);
   else showProfiles(acct.profiles);
 }
 
 async function logOut() {
-  if (busy) return;
   closeAll();
   if (voiceOn) endVoice();
+  if (busy) stopReply();
   await api.log_out();
-  chatEl.innerHTML = '';
+  me = null;
+  thread.innerHTML = '';
+  allChats = [];
   showAuth('login');
 }
 
@@ -612,12 +783,6 @@ $('#pw-eye').addEventListener('click', () => {
   $('#pw-eye').textContent = show ? 'hide' : 'show';
 });
 $('#log-out').addEventListener('click', logOut);
-$('#drawer-logout').addEventListener('click', logOut);
-$('#pw-save').addEventListener('click', async () => {
-  const r = await api.change_password($('#pw-old').value, $('#pw-new').value);
-  $('#pw-note').textContent = r.error || 'password changed ✓';
-  if (!r.error) { $('#pw-old').value = ''; $('#pw-new').value = ''; }
-});
 
 // ---------- profiles ----------
 
@@ -629,6 +794,7 @@ function showProfiles(list) {
   body.classList.remove('auth');
   body.classList.add('profiles');
   body.classList.remove('picking', 'manage');
+  $('#prof-manage').textContent = 'manage profiles';
   $('#prof-form').hidden = true;
   $('#pin-box').hidden = true;
   const grid = $('#prof-grid');
@@ -636,7 +802,7 @@ function showProfiles(list) {
   for (const p of list) {
     const b = document.createElement('button');
     b.className = 'prof';
-    b.innerHTML = `<div class="av"></div><div class="nm"></div>`;
+    b.innerHTML = '<div class="av"></div><div class="nm"></div>';
     b.querySelector('.av').style.background = p.color;
     b.querySelector('.av').textContent = p.name[0].toUpperCase();
     if (p.has_pin) b.querySelector('.av').insertAdjacentHTML('beforeend', '<span class="lock">🔒</span>');
@@ -703,10 +869,24 @@ async function submitPin() {
 
 function enterWith(r) {
   if (r.error) return;
-  body.classList.remove('profiles', 'picking', 'manage');
-  $('#who-name').textContent = r.profile.name;
+  body.classList.remove('profiles', 'picking', 'manage', 'auth');
+  me = r.profile;
+  $('#me-name').textContent = me.name;
+  $('#me-av').textContent = me.name[0].toUpperCase();
+  $('#me-av').style.background = me.color;
   showChat(r.chat);
-  flash('happy', 1300, pick([`yooo ${r.profile.name}!! 😤`, `ayy ${r.profile.name}'s back 🔥`, `what's good ${r.profile.name} 👋`]));
+  refreshChatList();
+  flash('happy', 1300, pick([`yooo ${me.name}!! 😤`, `ayy ${me.name}'s back 🔥`, `what's good ${me.name} 👋`]));
+  input.focus();
+}
+
+async function switchProfile() {
+  if (voiceOn) endVoice();
+  if (busy) stopReply();
+  closeAll();
+  const acct = await api.account_profiles();
+  if (acct) showProfiles(acct.profiles);
+  else showAuth('login');
 }
 
 $('#prof-create').addEventListener('click', async () => {
@@ -724,22 +904,26 @@ $('#prof-manage').addEventListener('click', () => {
   body.classList.toggle('manage');
   $('#prof-manage').textContent = body.classList.contains('manage') ? 'done' : 'manage profiles';
 });
-$('#switch-btn').addEventListener('click', async () => {
-  if (busy) return;
-  closeAll();
-  const acct = await api.account_profiles();
-  if (acct) showProfiles(acct.profiles);
-  else showAuth('login');
-});
 
 // ---------- startup ----------
+
+async function pollRoblox() {
+  let s;
+  try { s = await api.status(); } catch (e) { return; }
+  const dot = $('#roblox-dot');
+  const state = s.roblox;
+  dot.className = 'dot' + (state === 'connected' ? ' on' : state.startsWith('error') ? ' err' : '');
+  dot.title = `Roblox Studio: ${state}`;
+  dot.hidden = state === 'off';
+  if (state === 'starting') setTimeout(pollRoblox, 2000);
+}
 
 window.addEventListener('pywebviewready', async () => {
   api = window.pywebview.api;
   const info = await api.hello();
   petName = info.name;
   document.title = petName;
-  $('#pet-name').textContent = petName;
+  $('.sb-brand').textContent = petName;
   pet.svg.setAttribute('aria-label', petName);
   input.placeholder = `talk to ${petName}…`;
   onPetChanged(info.pet);
@@ -749,4 +933,5 @@ window.addEventListener('pywebviewready', async () => {
   pollRoblox();
 });
 
+setChatting(false);
 autosize();

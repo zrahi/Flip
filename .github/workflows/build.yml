@@ -34,7 +34,7 @@ jobs:
         run: |
           $pyiArgs = @(
             "--noconfirm", "--onefile", "--windowed", "--name", "Flip", "--icon", "flip.ico",
-            "--add-data", "ui;ui", "--add-data", "personality.txt;.", "--add-data", "flip.ico;.",
+            "--add-data", "ui;ui", "--add-data", "skills;skills", "--add-data", "personality.txt;.", "--add-data", "flip.ico;.",
             "--collect-all", "faster_whisper", "--collect-all", "ctranslate2", "--collect-all", "onnxruntime",
             "--collect-all", "webview", "--collect-data", "edge_tts", "--hidden-import", "mcp.client.stdio",
             "--hidden-import", "pystray._win32", "--hidden-import", "clr",
@@ -87,3 +87,25 @@ jobs:
           gh release create "v1.${{ github.run_number }}" dist/Flip.exe `
             --title "Flip v1.${{ github.run_number }}" `
             --notes "Download **Flip.exe** below and double-click it. First launch downloads his brain (a few GB, one time only)."
+
+      - name: Screenshot the real app (saved to the ci-screens branch)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $env:FLIP_HOME = "$env:RUNNER_TEMP\flip-shot"
+          New-Item -ItemType Directory -Force $env:FLIP_HOME | Out-Null
+          python tests/prepare_screenshot.py
+          $env:FLIP_SCREENSHOT = "$env:RUNNER_TEMP\shot.png"
+          $env:FLIP_SCREENSHOT_WAIT = "30"
+          $p = Start-Process -FilePath dist\Flip.exe -PassThru
+          if (-not $p.WaitForExit(120000)) { $p.Kill() }
+          Get-Content "$env:FLIP_HOME\flip.log" -Tail 20 -ErrorAction SilentlyContinue
+          if (-not (Test-Path $env:FLIP_SCREENSHOT)) { throw "no screenshot" }
+          Copy-Item $env:FLIP_SCREENSHOT shot.png
+          git config user.name "flip-build"
+          git config user.email "flip-build@users.noreply.github.com"
+          git checkout --orphan ci-screens
+          git reset -q
+          git add -f shot.png
+          git commit -q -m "screenshot from build ${{ github.run_number }}"
+          git push -f origin ci-screens

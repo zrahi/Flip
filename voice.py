@@ -15,6 +15,9 @@ log = logging.getLogger("flip")
 RATE = 16000
 CHUNK_SEC = 0.03
 
+# (pitch, speed) for each voice style
+STYLES = {"cute": ("+38Hz", "+8%"), "normal": ("+2Hz", "+10%"), "deep": ("-10Hz", "+4%")}
+
 CODE_BLOCK = re.compile(r"```.*?(```|$)", re.S)
 URL = re.compile(r"https?://\S+")
 EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿⬀-⯿️‍]")
@@ -191,11 +194,12 @@ class Voice:
     async def _tts(self, text):
         import edge_tts
 
+        pitch, rate = STYLES.get(self._s.get("voice_style"), STYLES["cute"])
         tts = edge_tts.Communicate(
             text,
             self._s.get("voice", "en-US-BrianNeural"),
-            rate=self._s.get("voice_rate", "+0%"),
-            pitch=self._s.get("voice_pitch", "+0Hz"),
+            rate=self._s.get("voice_rate") or rate,
+            pitch=self._s.get("voice_pitch") or pitch,
         )
         audio = bytearray()
         async for chunk in tts.stream():

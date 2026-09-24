@@ -6,14 +6,17 @@
 .pet .belly { fill: #d4fff0; opacity: .5; }
 .pet .foot { fill: #22a57b; }
 .pet .arm { fill: #3cd6a1; }
-.pet .cheek { fill: #ff6f9f; opacity: .8; transition: opacity .3s; }
+.pet .cheek { fill: #ff5c93; opacity: .85; transition: opacity .3s; }
 .pet .eye { fill: #1c1631; }
 .pet .shine { fill: #fff; }
 .pet .line, .pet .line path { fill: none; stroke: #1c1631; stroke-width: 4.2; stroke-linecap: round; }
 .pet .mouth { fill: #2a1030; }
 .pet .tongue { fill: #ff6f91; }
 .pet .cap { fill: url(#g-cap); }
-.pet .brim { fill: #d92c58; }
+.pet .brim { fill: url(#g-brim); }
+.pet .brim-edge { fill: none; stroke: #9e1639; stroke-width: 2.5; stroke-linecap: round; opacity: .55; }
+.pet .cap-seam { fill: none; stroke: #c9285a; stroke-width: 2; stroke-linecap: round; opacity: .5; }
+.pet .cap-shine { fill: none; stroke: #fff; stroke-width: 5; stroke-linecap: round; opacity: .35; }
 .pet .cap-btn { fill: #ff3f73; }
 .pet .bolt { fill: #ffe45c; }
 .pet #waves path { fill: none; stroke: #5ff0b8; stroke-width: 3.5; stroke-linecap: round; }
@@ -57,7 +60,7 @@
 
 /* thinking + working in Studio */
 [data-state="thinking"] .pet #bob, [data-state="working"] .pet #bob { animation: sway 1.6s ease-in-out infinite; }
-[data-state="thinking"] .pet #eyes, [data-state="working"] .pet #eyes { transform: translate(6px, -5px); }
+[data-state="thinking"] .pet #eyes, [data-state="working"] .pet #eyes { transform: translate(7px, -2px); }
 [data-state="thinking"] .pet #thought, [data-state="working"] .pet #thought { opacity: 1; }
 [data-state="thinking"] .pet .d, [data-state="working"] .pet .d { animation: dot 1s ease-in-out infinite; }
 .pet .d2 { animation-delay: .15s !important; }

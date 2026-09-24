@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 import threading
+import time
 
 from paths import DATA, RES, load_settings, personality_file, save_settings
 
@@ -29,7 +30,7 @@ def selftest(out_path):
         except BaseException as e:  # sounddevice raises OSError when there's no audio device, that's fine
             lines.append(f"{'ok' if mod == 'sounddevice' and isinstance(e, OSError) else 'FAIL'} {mod}: {e!r}")
     for f in ("ui/index.html", "ui/pet.html", "ui/app.js", "ui/desk.js", "ui/pet.js", "ui/pet.css",
-              "ui/style.css", "personality.txt", "flip.ico"):
+              "ui/style.css", "personality.txt", "flip.ico", "skills/valorant.txt"):
         lines.append(f"{'ok' if (RES / f).exists() else 'FAIL'} file {f}")
     import faster_whisper
     assets = os.path.join(os.path.dirname(faster_whisper.__file__), "assets")
@@ -59,13 +60,48 @@ from engine import Engine  # noqa: E402
 from voice import Voice  # noqa: E402
 
 
+def load_skills():
+    """Extra know-how (like Valorant) from the skills folders: built-in ones plus any .txt the user adds."""
+    texts = []
+    for folder in (RES / "skills", DATA / "skills"):
+        for f in sorted(folder.glob("*.txt")) if folder.is_dir() else []:
+            try:
+                texts.append(f.read_text(encoding="utf-8").strip())
+            except OSError:
+                pass
+    return texts
+
+
+def see_through(window):
+    """Makes the desktop pet's window background invisible (pywebview leaves it grey on Windows)."""
+    if sys.platform != "win32":
+        return
+    try:
+        from System import Func, Type
+        from System.Drawing import Color
+        from webview.platforms.winforms import BrowserView
+
+        form = BrowserView.instances.get(window.uid)
+        if form is None:
+            return
+
+        def apply():
+            key = Color.FromArgb(255, 1, 1, 1)  # this exact color becomes see-through (and click-through)
+            form.BackColor = key
+            form.TransparencyKey = key
+
+        form.Invoke(Func[Type](apply))
+    except Exception:
+        log.exception("Couldn't make the pet window see-through")
+
+
 class Api:
     """Everything the two windows (chat + desktop pet) can ask Python to do."""
 
     def __init__(self, settings):
         self._settings = settings
         self._engine = Engine(settings)
-        self._brain = Brain(settings, personality_file().read_text(encoding="utf-8"), self._engine.url)
+        self._brain = Brain(settings, personality_file().read_text(encoding="utf-8"), self._engine.url, load_skills())
         self._brain.on_tool = self._on_tool
         self._voice = Voice(settings)
         self._main = None
@@ -73,6 +109,8 @@ class Api:
         self._tray = None
         self._quitting = False
         self._chat_hidden = False
+        self._stop = threading.Event()
+        self._voice_on = False
 
     # ---------- startup info ----------
 
@@ -157,6 +195,11 @@ class Api:
     def brain_status(self):
         return self._engine.status
 
+    def set_fast(self, on):
+        self._engine.set_fast(on)
+        save_settings(self._settings)
+        return self._engine.status
+
     def retry_brain(self):
         self._engine.start()
 
@@ -170,11 +213,26 @@ class Api:
             return {"error": "pick a profile first 👤"}
         if self._engine.status["state"] != "ready":
             return {"error": "hold up, my brain is still loading 🧠 give me a sec"}
+        self._stop.clear()
+        buf, last = [], [0.0]
+
+        def flush():
+            if buf and self._main:
+                self._main.evaluate_js(f"onText({json.dumps(''.join(buf))})")
+                buf.clear()
+            last[0] = time.time()
+
+        def on_text(piece):  # send the reply to the window in small batches as it's written
+            buf.append(piece)
+            if time.time() - last[0] > 0.05:
+                flush()
+
         try:
-            reply, chat = self._brain.chat(chat_id, text, voice)
-            if self._chat_hidden:
+            reply, chat, stopped = self._brain.chat(chat_id, text, voice, on_text, self._stop)
+            flush()
+            if self._pet is not None and (self._chat_hidden or voice) and not stopped:
                 self.pet_say(reply)
-            return {"reply": reply, "chat_id": chat["id"], "title": chat["title"]}
+            return {"reply": reply, "stopped": stopped, "chat_id": chat["id"], "title": chat["title"]}
         except APIConnectionError:
             return {"error": "yo I can't reach my brain 💀 try closing and reopening me."}
         except NoModelError:
@@ -186,7 +244,18 @@ class Api:
             log.exception("Chat failed")
             return {"error": f"something broke 😭 ({e})"}
 
+    def stop(self):
+        self._stop.set()
+
     def list_chats(self):
+        return store.list_chats()
+
+    def rename_chat(self, chat_id, title):
+        store.update_chat(chat_id, title=title)
+        return store.list_chats()
+
+    def pin_chat(self, chat_id, pinned):
+        store.update_chat(chat_id, pinned=pinned)
         return store.list_chats()
 
     def open_chat_id(self, chat_id):
@@ -215,10 +284,10 @@ class Api:
     # ---------- settings ----------
 
     def get_settings(self):
-        return {k: self._settings.get(k) for k in ("name", "voice", "roblox_studio")}
+        return {k: self._settings.get(k) for k in ("name", "voice", "voice_style", "roblox_studio")}
 
     def save_settings(self, changes):
-        for k in ("name", "voice", "roblox_studio"):
+        for k in ("name", "voice", "voice_style", "roblox_studio"):
             if k in changes:
                 self._settings[k] = changes[k]
         save_settings(self._settings)
@@ -268,11 +337,12 @@ class Api:
             screen = webview.screens[0]
             x, y = self._settings.get("pet_pos") or (screen.width - 250, screen.height - 310)
             self._pet = webview.create_window(
-                "Flip pet", "ui/pet.html", js_api=self, width=230, height=250, x=x, y=y,
-                frameless=True, transparent=True, on_top=True, resizable=False, easy_drag=True,
-                background_color="#000000",
+                "Flip pet", "ui/pet.html", js_api=self, width=230, height=270, x=x, y=y,
+                frameless=True, transparent=True, on_top=self._settings.get("pet_pinned", True),
+                resizable=False, easy_drag=True, background_color="#010101",
             )
             self._pet.events.closed += self._pet_closed
+            self._pet.events.shown += lambda: see_through(self._pet)
         self._settings["pet_visible"] = True
         save_settings(self._settings)
         self._update_tray()
@@ -297,6 +367,34 @@ class Api:
 
     def pet_visible(self):
         return self._pet is not None
+
+    def pet_info(self):
+        return {"pinned": self._settings.get("pet_pinned", True), "voice": self._voice_on}
+
+    def pet_pin(self, on):
+        self._settings["pet_pinned"] = bool(on)
+        save_settings(self._settings)
+        if self._pet is not None:
+            self._pet.on_top = bool(on)
+        return bool(on)
+
+    def pet_voice(self):
+        """The voice button on the desktop pet: start or end a voice chat (run by the chat window)."""
+        if store.current is None:
+            self.pet_say("open the chat and log in first 👀")
+            return False
+        if self._main:
+            self._main.evaluate_js("toggleVoiceFromPet()")
+        return True
+
+    def pet_interrupt(self):
+        if self._main:
+            self._main.evaluate_js("stopSpeaking()")
+
+    def voice_state(self, on):
+        self._voice_on = bool(on)
+        if self._pet is not None:
+            self._pet.evaluate_js(f"voiceChanged({json.dumps(self._voice_on)})")
 
     def pet_state(self, state):
         if self._pet is not None:
@@ -335,6 +433,19 @@ class Api:
         self._start_tray()
         if self._settings.get("pet_visible"):
             self.show_pet()
+        if os.environ.get("FLIP_SCREENSHOT"):  # used by the build to check the real windows
+            threading.Thread(target=self._screenshot, daemon=True).start()
+
+    def _screenshot(self):
+        try:
+            from PIL import ImageGrab
+
+            time.sleep(float(os.environ.get("FLIP_SCREENSHOT_WAIT", "25")))
+            ImageGrab.grab(all_screens=True).save(os.environ["FLIP_SCREENSHOT"])
+        except Exception:
+            log.exception("Screenshot failed")
+        finally:
+            self.quit()
 
     def _start_tray(self):
         try:

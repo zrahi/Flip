@@ -187,8 +187,20 @@ def list_chats():
     for f in CHATS.glob("*.json"):
         c = _read(f, None)
         if c:
-            chats.append({"id": c["id"], "title": c["title"], "updated": c["updated"]})
+            chats.append({"id": c["id"], "title": c["title"], "updated": c["updated"], "pinned": c.get("pinned", False)})
     return sorted(chats, key=lambda c: c["updated"], reverse=True)
+
+
+def update_chat(chat_id, title=None, pinned=None):
+    chat = load_chat(chat_id)
+    if chat is None:
+        return None
+    if title is not None and title.strip():
+        chat["title"] = title.strip()[:60]
+    if pinned is not None:
+        chat["pinned"] = bool(pinned)
+    save_chat(chat)
+    return chat
 
 
 def new_chat(chat_id=None):

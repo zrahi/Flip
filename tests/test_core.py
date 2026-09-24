@@ -99,7 +99,9 @@ def test_utterance_detector():
 
 
 class FakeModel(BaseHTTPRequestHandler):
-    """Acts like the AI: first asks to use tools, then answers."""
+    """Acts like the AI server: first asks to use tools, then streams an answer word by word."""
+
+    slow = False
 
     def log_message(self, *a):
         pass
@@ -112,49 +114,81 @@ class FakeModel(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b)
 
+    def _chunk(self, delta):
+        data = {"id": "x", "object": "chat.completion.chunk", "created": 0, "model": "qwen",
+                "choices": [{"index": 0, "delta": delta, "finish_reason": None}]}
+        self.wfile.write(f"data: {json.dumps(data)}\n\n".encode())
+        self.wfile.flush()
+
     def do_GET(self):
         self._send({"object": "list", "data": [{"id": "embed-x", "object": "model"}, {"id": "qwen", "object": "model"}]})
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         FakeModel.last = body
+        assert body["stream"] is True
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
         last = body["messages"][-1]
-        if last["role"] == "user":
-            calls = [{"id": "c1", "type": "function", "function": {"name": "remember", "arguments": json.dumps({"fact": "name is Marru"})}},
-                     {"id": "c2", "type": "function", "function": {"name": "run_code", "arguments": json.dumps({"command": "print(1)"})}}]
-            msg = {"role": "assistant", "content": None, "tool_calls": calls}
+        if last["role"] == "user" and "tools please" in last["content"]:
+            self._chunk({"role": "assistant", "tool_calls": [
+                {"index": 0, "id": "c1", "type": "function", "function": {"name": "remember", "arguments": ""}}]})
+            self._chunk({"tool_calls": [{"index": 0, "function": {"arguments": json.dumps({"fact": "name is Marru"})}}]})
+            self._chunk({"tool_calls": [{"index": 1, "id": "c2", "type": "function",
+                                         "function": {"name": "run_code", "arguments": json.dumps({"command": "print(1)"})}}]})
         else:
             results = [m["content"] for m in body["messages"] if m["role"] == "tool"]
-            msg = {"role": "assistant", "content": "<think>hmm</think>bet " + " | ".join(results)}
-        self._send({"id": "x", "object": "chat.completion", "created": 0, "model": body["model"],
-                    "choices": [{"index": 0, "message": msg, "finish_reason": "stop"}]})
+            words = ["<think>", "hmm", "</think>", "bet ", " | ".join(results)] if results else ["yo ", "what's ", "good"]
+            if FakeModel.slow:
+                words = ["one ", "two ", "three ", "four ", "five "]
+            for w in words:
+                self._chunk({"content": w})
+                if FakeModel.slow:
+                    time.sleep(0.3)
+        self.wfile.write(b"data: [DONE]\n\n")
+        self.wfile.flush()
 
 
-def test_brain_memory_and_studio_tools():
+def test_brain_memory_tools_and_streaming():
     server = HTTPServer(("127.0.0.1", 0), FakeModel)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     settings = {"name": "Flip", "roblox_studio": True, "roblox_command": [sys.executable, str(HERE / "fake_mcp.py")]}
-    b = Brain(settings, "You are {name}.", f"http://127.0.0.1:{server.server_port}/v1")
+    b = Brain(settings, "You are {name}.", f"http://127.0.0.1:{server.server_port}/v1", ["VALORANT know-how"])
     for _ in range(100):
         if b.roblox_status() != "starting":
             break
         time.sleep(0.2)
     assert b.roblox_status() == "connected"
-    used = []
+    used, pieces = [], []
     b.on_tool = used.append
 
     store.use_profile(store.profiles()[0])
-    reply, chat = b.chat("c0ffee", "yo I'm Marru")
+    reply, chat, stopped = b.chat("c0ffee", "yo I'm Marru, tools please", on_text=pieces.append)
     assert used == ["remember", "run_code"]
     assert reply.startswith("bet saved as [") and reply.endswith("ran: print(1)")
-    assert "<think>" not in reply
-    assert store.load_chat("c0ffee")["title"] == "yo I'm Marru"
+    assert "<think>" not in reply and "hmm" not in "".join(pieces)
+    assert "".join(pieces).strip() == reply     # what streamed is what got saved
+    assert not stopped
+    assert store.load_chat("c0ffee")["title"] == "yo I'm Marru, tools please"
     assert any(m["text"] == "name is Marru" for m in store.memories())
 
     b.chat("c0ffee", "again")  # the memory now shows up in what the AI is told
-    assert "name is Marru" in FakeModel.last["messages"][0]["content"]
-    assert "You're talking to Marru" in FakeModel.last["messages"][0]["content"]
+    system = FakeModel.last["messages"][0]["content"]
+    assert "name is Marru" in system and "You're talking to Marru" in system and "VALORANT know-how" in system
     assert FakeModel.last["model"] == "qwen"
+
+    b.chat("c0ffee", "again", voice=True)  # voice note goes on the message, the system text stays the same
+    assert FakeModel.last["messages"][0]["content"] == system
+    assert "voice call" in FakeModel.last["messages"][-1]["content"]
+
+    FakeModel.slow = True  # the stop button
+    stop = threading.Event()
+    threading.Timer(0.8, stop.set).start()
+    reply, _, stopped = b.chat("c0ffee", "count", stop=stop)
+    FakeModel.slow = False
+    assert stopped and reply.startswith("one") and "five" not in reply
+    assert store.load_chat("c0ffee")["messages"][-1]["content"] == reply
     server.shutdown()
 
 
@@ -168,6 +202,6 @@ def test_downloads_exist():
     assert engine.pick_model(0) == engine.MODELS[2][1]
     url, size = engine.llama_download()
     assert url.endswith(".zip") and size > 1e6
-    for _, repo in engine.MODELS:
+    for repo in {r for _, r in engine.MODELS} | set(engine.FAST.values()):
         url, name, size = engine.model_download(repo)
         assert name.endswith(".gguf") and size > 1e9, (repo, name, size)

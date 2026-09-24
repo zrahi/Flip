@@ -19,8 +19,8 @@ DEFAULT_SETTINGS = {
     "llm_url": "",
     "local_model": "auto",
     "voice": "en-US-BrianNeural",
-    "voice_rate": "+12%",
-    "voice_pitch": "+2Hz",
+    "voice_style": "cute",
+    "fast_mode": False,
     "whisper_model": "base.en",
     "roblox_studio": True,
     "roblox_command": ["cmd.exe", "/c", "cd /d %LOCALAPPDATA%\\Roblox && .\\mcp.bat"],
@@ -34,6 +34,11 @@ def load_settings():
         settings.update(json.loads(path.read_text(encoding="utf-8")))
     except (OSError, ValueError):
         pass
+    if settings.get("version", 1) < 2:  # v2: cute voice by default, set by voice_style
+        settings["voice_style"] = "cute"
+        settings.pop("voice_pitch", None)
+        settings.pop("voice_rate", None)
+    settings["version"] = 2
     save_settings(settings)
     return settings
 

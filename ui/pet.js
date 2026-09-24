@@ -8,9 +8,17 @@ const PET_SVG = `
       <stop offset=".5" stop-color="#5ff0b8"/>
       <stop offset="1" stop-color="#26b889"/>
     </radialGradient>
-    <linearGradient id="g-cap" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ff82a6"/>
-      <stop offset="1" stop-color="#ff3f73"/>
+    <filter id="f-soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.4"/>
+    </filter>
+    <radialGradient id="g-cap" cx="40%" cy="25%" r="85%">
+      <stop offset="0" stop-color="#ff9ab8"/>
+      <stop offset=".55" stop-color="#ff4f7e"/>
+      <stop offset="1" stop-color="#e2305e"/>
+    </radialGradient>
+    <linearGradient id="g-brim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff4f7e"/>
+      <stop offset="1" stop-color="#c41f4b"/>
     </linearGradient>
   </defs>
 
@@ -29,41 +37,42 @@ const PET_SVG = `
       <ellipse id="arm-r" class="arm" cx="170" cy="130" rx="10" ry="16"/>
       <path class="body" d="M100 44 C152 44 172 80 172 120 C172 162 142 180 100 180 C58 180 28 162 28 120 C28 80 48 44 100 44 Z"/>
       <ellipse class="belly" cx="100" cy="152" rx="42" ry="22"/>
-      <ellipse class="cheek" cx="60" cy="130" rx="11" ry="7"/>
-      <ellipse class="cheek" cx="140" cy="130" rx="11" ry="7"/>
+      <ellipse class="cheek" cx="58" cy="133" rx="12" ry="7.5" filter="url(#f-soft)"/>
+      <ellipse class="cheek" cx="142" cy="133" rx="12" ry="7.5" filter="url(#f-soft)"/>
 
       <g id="look">
         <g id="eyes">
           <g id="eyes-open">
-            <ellipse class="eye" cx="76" cy="110" rx="11" ry="14"/>
-            <ellipse class="eye" cx="124" cy="110" rx="11" ry="14"/>
-            <circle class="shine" cx="72" cy="104" r="4.2"/>
-            <circle class="shine" cx="80" cy="116" r="2"/>
-            <circle class="shine" cx="120" cy="104" r="4.2"/>
-            <circle class="shine" cx="128" cy="116" r="2"/>
+            <ellipse class="eye" cx="76" cy="113" rx="11" ry="14"/>
+            <ellipse class="eye" cx="124" cy="113" rx="11" ry="14"/>
+            <circle class="shine" cx="72" cy="107" r="4.4"/>
+            <circle class="shine" cx="120" cy="107" r="4.4"/>
           </g>
           <g id="eyes-closed" class="line">
-            <path d="M65 112 Q76 120 87 112"/>
-            <path d="M113 112 Q124 120 135 112"/>
+            <path d="M65 115 Q76 123 87 115"/>
+            <path d="M113 115 Q124 123 135 115"/>
           </g>
           <g id="eyes-happy" class="line">
-            <path d="M65 115 Q76 101 87 115"/>
-            <path d="M113 115 Q124 101 135 115"/>
+            <path d="M65 118 Q76 104 87 118"/>
+            <path d="M113 118 Q124 104 135 118"/>
           </g>
         </g>
       </g>
 
-      <path id="mouth-smile" class="line" d="M90 132 Q100 142 110 132"/>
+      <path id="mouth-smile" class="line" d="M91 135 Q100 143 109 135"/>
       <g id="mouth-open">
-        <ellipse class="mouth" cx="100" cy="138" rx="12" ry="10"/>
-        <ellipse class="tongue" cx="100" cy="143" rx="7" ry="4"/>
+        <ellipse class="mouth" cx="100" cy="140" rx="11" ry="9"/>
+        <ellipse class="tongue" cx="100" cy="145" rx="6.5" ry="3.6"/>
       </g>
 
-      <g id="cap" transform="rotate(-8 100 60)">
-        <path class="brim" d="M138 72 C160 66 186 70 192 80 C178 86 156 84 136 80 Z"/>
-        <path class="cap" d="M50 80 C50 26 150 26 150 80 C120 71 80 71 50 80 Z"/>
-        <circle class="cap-btn" cx="100" cy="39" r="5"/>
-        <path class="bolt" d="M104 50 L93 64 L101 64 L96 76 L109 60 L101 60 Z"/>
+      <g id="cap">
+        <path class="cap" d="M30 91 C27 14 173 14 170 91 C140 80 60 80 30 91 Z"/>
+        <path class="cap-seam" d="M100 34 C96 52 96 68 99 81"/>
+        <path class="cap-shine" d="M52 60 C60 44 76 36 94 34"/>
+        <path class="bolt" d="M109 44 L96 60 L104 60 L98 74 L114 56 L105 56 Z"/>
+        <circle class="cap-btn" cx="100" cy="33" r="5.5"/>
+        <path class="brim" d="M34 89 C60 76 140 76 166 89 C152 101 48 101 34 89 Z"/>
+        <path class="brim-edge" d="M40 93 C62 99 138 99 160 93"/>
       </g>
     </g>
   </g>
@@ -149,7 +158,8 @@ class Pet {
     const d = Math.max(1, Math.hypot(dx, dy));
     const k = Math.min(1, d / 180);
     this.svg.style.setProperty('--lx', `${((dx / d) * 7 * k).toFixed(1)}px`);
-    this.svg.style.setProperty('--ly', `${((dy / d) * 5 * k).toFixed(1)}px`);
+    // eyes can look down more than up, so they don't slide under the cap
+    this.svg.style.setProperty('--ly', `${((dy / d) * (dy < 0 ? 2 : 5) * k).toFixed(1)}px`);
   }
 
   lookAway() {

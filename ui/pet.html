@@ -9,7 +9,7 @@
   body { font: 13px/1.35 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
   #stage { position: absolute; left: 0; right: 0; bottom: 6px; display: flex; flex-direction: column; align-items: center; }
   #pet-host .pet { width: 150px; height: 150px; }
-  #stage .pet-shadow { width: 84px; height: 11px; margin-top: -10px; background: rgba(0, 0, 0, .28); }
+  #stage .pet-shadow { display: none; }
   #bubble {
     position: absolute; left: 10px; right: 10px; top: 4px; padding: 7px 11px; border-radius: 14px;
     background: #fff; color: #1c1631; box-shadow: 0 4px 14px rgba(0, 0, 0, .25);
@@ -18,7 +18,7 @@
   }
   #bubble.show { opacity: 1; transform: none; }
   #tools {
-    position: absolute; right: 16px; top: 64px; display: flex; flex-direction: column; gap: 6px;
+    position: absolute; right: 12px; top: 58px; display: flex; flex-direction: column; gap: 6px;
     opacity: 0; transform: translateX(6px); transition: opacity .18s, transform .18s; pointer-events: none;
   }
   body.hover #tools { opacity: 1; transform: none; pointer-events: auto; }
@@ -28,6 +28,10 @@
     box-shadow: 0 3px 10px rgba(0, 0, 0, .3);
   }
   #tools button:hover { background: #5ff0b8; color: #0f2a20; }
+  #tools button.on { background: #5ff0b8; color: #0f2a20; }
+  #tools #voice-btn.on { background: #ff4d6d; color: #fff; animation: live 1.2s ease-in-out infinite; }
+  body.voice #tools { opacity: 1; transform: none; pointer-events: auto; }
+  @keyframes live { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 77, 109, .6); } 50% { box-shadow: 0 0 0 6px rgba(255, 77, 109, 0); } }
   #tools svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 </style>
 </head>
@@ -43,6 +47,12 @@
     </button>
     <button id="hide-btn" title="Hide pet">
       <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <button id="voice-btn" title="Talk to me (voice chat)">
+      <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
+    </button>
+    <button id="pin-btn" title="Pinned on top of other windows">
+      <svg viewBox="0 0 24 24"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/><path d="M12 14v7"/></svg>
     </button>
   </div>
 <script src="pet.js"></script>

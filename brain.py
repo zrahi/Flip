@@ -110,39 +110,80 @@ class LocalBackend:
             self.model = ids[0]
         return self.model
 
-    def answer(self, system, history, tools, run_tool):
+    def answer(self, system, history, tools, run_tool, on_text=None, stop=None):
+        """Runs the model (and any tools it asks for). Streams text through on_text as it's written.
+        Returns (reply, stopped)."""
         messages = [{"role": "system", "content": system}] + history
         spec = [{"type": "function", "function": {"name": t["name"], "description": t["description"],
                                                   "parameters": t["schema"]}} for t in tools]
+        shown = ""
         for _ in range(MAX_TOOL_STEPS):
-            kwargs = {"model": self._pick_model(), "messages": messages}
+            kwargs = {"model": self._pick_model(), "messages": messages, "stream": True}
             if spec:
                 kwargs["tools"] = spec
-            msg = self.client.chat.completions.create(**kwargs).choices[0].message
-            if not msg.tool_calls:
-                return clean_reply(msg.content or "")
+            stream = self.client.chat.completions.create(**kwargs)
+            text, calls = "", {}
+            try:
+                for chunk in stream:
+                    if stop is not None and stop.is_set():
+                        return clean_reply(shown + text), True
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        before = visible(text)
+                        text += delta.content
+                        after = visible(text)
+                        if on_text and len(after) > len(before):
+                            on_text(after[len(before):])
+                    for tc in delta.tool_calls or []:
+                        c = calls.setdefault(tc.index, {"id": "", "name": "", "args": ""})
+                        c["id"] = tc.id or c["id"]
+                        if tc.function:
+                            c["name"] += tc.function.name or ""
+                            c["args"] += tc.function.arguments or ""
+            finally:
+                stream.close()
+            if not calls:
+                return clean_reply(shown + text), False
+            shown += visible(text)
+            if visible(text).strip() and on_text:
+                on_text("\n\n")
+                shown += "\n\n"
             messages.append({
                 "role": "assistant",
-                "content": msg.content or "",
-                "tool_calls": [{"id": c.id, "type": "function",
-                                "function": {"name": c.function.name, "arguments": c.function.arguments}}
-                               for c in msg.tool_calls],
+                "content": text,
+                "tool_calls": [{"id": c["id"] or f"call_{i}", "type": "function",
+                                "function": {"name": c["name"], "arguments": c["args"] or "{}"}}
+                               for i, c in sorted(calls.items())],
             })
-            for call in msg.tool_calls:
+            for i, c in sorted(calls.items()):
                 try:
-                    args = json.loads(call.function.arguments or "{}")
+                    args = json.loads(c["args"] or "{}")
                 except ValueError:
                     args = {}
-                messages.append({"role": "tool", "tool_call_id": call.id, "content": run_tool(call.function.name, args)})
-        return "bro I did like 15 steps and got lost 😭 tell me to keep going"
+                messages.append({"role": "tool", "tool_call_id": c["id"] or f"call_{i}",
+                                 "content": run_tool(c["name"], args)})
+        return clean_reply(shown) + "\n\nbro I did like 15 steps and got lost 😭 tell me to keep going", False
+
+
+def visible(text):
+    """The part of a streamed reply that's okay to show (hides <think>…</think> blocks)."""
+    if "<think>" in text:
+        before, _, rest = text.partition("<think>")
+        return before + (rest.split("</think>", 1)[1] if "</think>" in rest else "")
+    if "</think>" in text:
+        return text.split("</think>", 1)[1]
+    return text
 
 
 # ---------- Flip himself ----------
 
 class Brain:
-    def __init__(self, settings, personality, local_url):
+    def __init__(self, settings, personality, local_url, skills=()):
         self.name = settings["name"]
         self.personality = personality.replace("{name}", self.name)
+        self.skills = list(skills)
         self.on_tool = lambda name: None
         self.roblox = RobloxLink(settings["roblox_command"]) if settings.get("roblox_studio") else None
 
@@ -151,7 +192,7 @@ class Brain:
     def roblox_status(self):
         return self.roblox.status if self.roblox else "off"
 
-    def _system(self, voice):
+    def _system(self):
         parts = [self.personality]
         if store.current:
             parts.append(f"You're talking to {store.current['name']} (that's the name on their profile).")
@@ -161,10 +202,10 @@ class Brain:
                          "\n".join(f"- [{m['id']}] {m['text']}" for m in mems))
         else:
             parts.append("You don't remember anything about the user yet. Use the remember tool when you learn about them.")
-        parts.append(time.strftime("Right now it's %A, %B %d %Y, %I:%M %p."))
-        if voice:
-            parts.append("You're in a live voice call right now. Reply in 1-2 short spoken sentences. "
-                         "No code blocks, lists or emojis unless they ask.")
+        parts.extend(self.skills)
+        # Only the date (not the time): keeping this text the same between messages lets the
+        # brain reuse its work on the chat so far instead of re-reading everything each time.
+        parts.append(time.strftime("Today is %A, %B %d %Y."))
         return "\n\n".join(parts)
 
     def _tools(self):
@@ -188,15 +229,20 @@ class Brain:
             text = text[:MAX_TOOL_OUTPUT] + "\n...(cut off)"
         return text
 
-    def chat(self, chat_id, text, voice=False):
+    def chat(self, chat_id, text, voice=False, on_text=None, stop=None):
         chat = store.load_chat(chat_id) or store.new_chat(chat_id)
         history = [{"role": m["role"], "content": m["content"]} for m in chat["messages"][-MAX_HISTORY:]]
-        history.append({"role": "user", "content": text})
-        reply = self.backend.answer(self._system(voice), history, self._tools(), self._run_tool)
-        reply = reply or "💀 my brain blanked, say that again?"
+        prompt = text
+        if voice:
+            prompt += ("\n\n(We're in a live voice call: answer in 1-2 short spoken sentences, "
+                       "no code blocks, lists or emojis unless I ask.)")
+        history.append({"role": "user", "content": prompt})
+        reply, stopped = self.backend.answer(self._system(), history, self._tools(), self._run_tool, on_text, stop)
+        if not reply:
+            reply = "(stopped)" if stopped else "💀 my brain blanked, say that again?"
         if not chat["messages"]:
             chat["title"] = store.title_from(text)
         chat["messages"] += [{"role": "user", "content": text}, {"role": "assistant", "content": reply}]
         chat["updated"] = time.time()
         store.save_chat(chat)
-        return reply, chat
+        return reply, chat, stopped
