@@ -31,7 +31,7 @@ assert engine.status["state"] == "ready", engine.status
 store.use_account(store.create_account("tester", "password1"))
 store.use_profile(store.create_profile("Sam"))
 brain = Brain(settings, "You are {name}, a friendly buddy. Keep replies short.", engine.url)
-reply, _ = brain.chat("e2e", "hi! my name is Sam and I love Roblox. say hi back.")
+reply, _, _ = brain.chat("e2e", "hi! my name is Sam and I love Roblox. say hi back.")
 print("REPLY:", reply)
 assert reply.strip()
 engine.stop()
