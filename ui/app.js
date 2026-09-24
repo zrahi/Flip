@@ -254,22 +254,40 @@ function stopReply() {
 // ---------- voice out ----------
 
 function stopSpeaking() {
+  speakToken = null;
   if (currentAudio) currentAudio.pause();
   if (window.speechSynthesis) speechSynthesis.cancel();
   if (speakDone) speakDone();
 }
 window.stopSpeaking = stopSpeaking;
 
+let speakToken = null;
+
+// Speaks a reply sentence by sentence: the next sentence gets made while the current one plays.
 async function speak(text) {
-  let mp3 = null;
-  try { mp3 = await api.speak(text); } catch (e) {}
-  if (mp3) return playMp3(mp3, text);
-  return speakWithWindows(text);
+  let parts = [];
+  try { parts = await api.speech_parts(text); } catch (e) {}
+  if (!parts.length) return;
+  const token = {};
+  speakToken = token;
+  let next = api.say(parts[0]);
+  for (let i = 0; i < parts.length; i++) {
+    let clip = null;
+    try { clip = await next; } catch (e) {}
+    if (speakToken !== token) return;
+    next = i + 1 < parts.length ? api.say(parts[i + 1]) : null;
+    if (clip) await playClip(clip);
+    else await speakWithWindows(parts[i]);
+    if (speakToken !== token) return;
+  }
+  speakToken = null;
 }
 
-function playMp3(b64, text) {
+function playClip(clip) {
   return new Promise((resolve) => {
-    const audio = new Audio(`data:audio/mpeg;base64,${b64}`);
+    const audio = new Audio(`data:${clip.mime};base64,${clip.audio}`);
+    audio.preservesPitch = false;          // playing a bit faster makes him sound younger (cute style)
+    audio.playbackRate = clip.rate || 1;
     currentAudio = audio;
     let analyser = null, data = null, raf = 0, finished = false;
 
@@ -315,7 +333,7 @@ function playMp3(b64, text) {
 
     audio.play()
       .then(() => { setState('talking'); tick(); })
-      .catch(() => { finished = true; currentAudio = null; speakWithWindows(text).then(resolve); });
+      .catch(() => { finished = true; currentAudio = null; resolve(); });
   });
 }
 
@@ -638,8 +656,13 @@ $('#mem-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') addM
 async function openSettings() {
   const s = await api.get_settings();
   $('#set-name').value = s.name;
-  $('#set-voice').value = s.voice;
+  $('#set-voice').innerHTML = Object.entries(s.voices).map(([id, label]) => `<option value="${id}">${esc(label)}</option>`).join('');
+  $('#set-voice').value = s.voices[s.voice] ? s.voice : Object.keys(s.voices)[0];
   $('#set-style').value = s.voice_style || 'cute';
+  $('#set-speed').value = String(s.talk_speed || 1);
+  $('#set-mic').innerHTML = '<option value="">Windows default</option>' +
+    s.mics.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
+  $('#set-mic').value = s.mic == null ? '' : String(s.mic);
   $('#set-roblox').checked = !!s.roblox_studio;
   $('#set-note').textContent = '';
   $('#pw-note').textContent = '';
@@ -651,15 +674,27 @@ async function openSettings() {
   openPanel('settings');
 }
 $('#set-save').addEventListener('click', async () => {
-  await api.save_settings({
-    name: $('#set-name').value.trim() || 'Flip',
-    voice: $('#set-voice').value,
-    voice_style: $('#set-style').value,
-    roblox_studio: $('#set-roblox').checked,
-  });
+  await api.save_settings(currentSettings());
   $('#set-note').textContent = 'saved ✓ voice changes work right away, the rest after you reopen me 🔁';
 });
 $('#set-folder').addEventListener('click', () => api.open_folder());
+
+function currentSettings() {
+  const mic = $('#set-mic').value;
+  return {
+    name: $('#set-name').value.trim() || 'Flip',
+    voice: $('#set-voice').value,
+    voice_style: $('#set-style').value,
+    talk_speed: parseFloat($('#set-speed').value),
+    mic: mic === '' ? null : parseInt(mic, 10),
+    roblox_studio: $('#set-roblox').checked,
+  };
+}
+$('#voice-test').addEventListener('click', async () => {
+  await api.save_settings(currentSettings());  // voice settings apply right away
+  stopSpeaking();
+  speak(pick(['yo, it\'s me. how do I sound?', 'this is my voice, lowkey fire right?', 'testing, testing. I\'m ready to clutch.']));
+});
 
 // ---------- storage ----------
 

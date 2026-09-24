@@ -7,3 +7,4 @@ numpy
 edge-tts>=6.1
 pystray>=0.19
 pillow
+kokoro-onnx>=0.4

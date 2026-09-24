@@ -18,11 +18,13 @@ DEFAULT_SETTINGS = {
     "name": "Flip",
     "llm_url": "",
     "local_model": "auto",
-    "voice": "en-US-BrianNeural",
+    "voice": "am_fenrir",
     "voice_style": "cute",
+    "talk_speed": 1.0,
+    "mic": None,
     "fast_mode": False,
-    "whisper_model": "base.en",
-    "roblox_studio": True,
+    "whisper_model": "small.en",
+    "roblox_studio": False,
     "roblox_command": ["cmd.exe", "/c", "cd /d %LOCALAPPDATA%\\Roblox && .\\mcp.bat"],
 }
 
@@ -34,11 +36,18 @@ def load_settings():
         settings.update(json.loads(path.read_text(encoding="utf-8")))
     except (OSError, ValueError):
         pass
-    if settings.get("version", 1) < 2:  # v2: cute voice by default, set by voice_style
+    settings.setdefault("version", 1)
+    if settings["version"] < 2:  # v2: cute voice by default, set by voice_style
         settings["voice_style"] = "cute"
         settings.pop("voice_pitch", None)
         settings.pop("voice_rate", None)
-    settings["version"] = 2
+    if settings["version"] < 3:  # v3: he's a Valorant buddy now; Roblox Studio is opt-in; his own voice
+        settings["roblox_studio"] = False
+        settings["voice"] = "am_fenrir"
+        settings["voice_style"] = "cute"
+        if settings.get("whisper_model") in (None, "base.en"):
+            settings["whisper_model"] = "small.en"
+    settings["version"] = 3
     save_settings(settings)
     return settings
 
@@ -49,7 +58,7 @@ def save_settings(settings):
 
 # Built-in personalities from older versions. If the user's copy still matches one of these (they never
 # edited it), it gets replaced with the current one.
-OLD_PERSONALITIES = {"abef6351e80dae97bb00812ddda0568e0c4c60265c1c0d33ac409472316e8314"}
+OLD_PERSONALITIES = {"5972ed76d7f743c21d5b2aa53f2604ba223b31e514d0757a896a8231d54c4d02", "abef6351e80dae97bb00812ddda0568e0c4c60265c1c0d33ac409472316e8314", "d8461125a4037efd6146eb2656a6e3f58ebe5f2ff4e00009611c478131998f99"}
 
 
 def personality_file():

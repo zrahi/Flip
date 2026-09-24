@@ -163,14 +163,21 @@ def test_update_versions():
 
 def test_utterance_detector():
     rng = np.random.default_rng(0)
-    chunk = int(voice.RATE * voice.CHUNK_SEC)
-    quiet = lambda sec: [rng.normal(0, 0.002, chunk).astype(np.float32) for _ in range(int(sec / voice.CHUNK_SEC))]
-    t = np.arange(chunk) / voice.RATE
-    loud = lambda sec: [(0.2 * np.sin(2 * np.pi * 220 * t)).astype(np.float32) for _ in range(int(sec / voice.CHUNK_SEC))]
-    d = voice.UtteranceDetector()
-    got = [a for c in quiet(1) + loud(1) + quiet(1.2) if (a := d.feed(c)) is not None]
+    t = np.arange(voice.FRAME) / voice.RATE
+    quiet = lambda sec: [rng.normal(0, 0.002, voice.FRAME).astype(np.float32) for _ in range(int(sec * voice.RATE / voice.FRAME))]
+    loud = lambda sec: [(0.2 * np.sin(2 * np.pi * 220 * t)).astype(np.float32) for _ in range(int(sec * voice.RATE / voice.FRAME))]
+    by_loudness = lambda f: min(1.0, float(np.sqrt(np.mean(f ** 2))) * 25)
+    d = voice.UtteranceDetector(chance=by_loudness)
+    got = [a for f in quiet(1) + loud(1) + quiet(1.2) if (a := d.feed(f)) is not None]
     assert len(got) == 1
-    assert 1.0 <= len(got[0]) / voice.RATE <= 2.3
+    assert 1.0 <= len(got[0]) / voice.RATE <= 2.4
+    d = voice.UtteranceDetector(chance=by_loudness)  # a click is too short to count
+    assert [a for f in quiet(1) + loud(0.1) + quiet(1.2) if (a := d.feed(f)) is not None] == []
+
+
+def test_speech_parts():
+    parts = voice.Voice({}).speech_parts("yo that was clean. Hi! You're actually cracked, ngl. Want tips for Ascent?")
+    assert parts == ["yo that was clean. Hi! You're actually cracked, ngl.", "Want tips for Ascent?"]
 
 
 class FakeModel(BaseHTTPRequestHandler):

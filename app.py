@@ -23,7 +23,7 @@ def selftest(out_path):
     """Used by the build: checks that everything Flip needs made it into the .exe."""
     lines = []
     for mod in ("webview", "clr", "openai", "mcp", "mcp.client.stdio", "faster_whisper", "ctranslate2", "onnxruntime", "numpy",
-                "sounddevice", "edge_tts", "pystray", "PIL", "brain", "engine", "voice", "store", "storage", "updater"):
+                "sounddevice", "edge_tts", "kokoro_onnx", "pystray", "PIL", "brain", "engine", "voice", "store", "storage", "updater"):
         try:
             __import__(mod)
             lines.append(f"ok {mod}")
@@ -35,6 +35,20 @@ def selftest(out_path):
     import faster_whisper
     assets = os.path.join(os.path.dirname(faster_whisper.__file__), "assets")
     lines.append(f"{'ok' if os.path.isdir(assets) and os.listdir(assets) else 'FAIL'} whisper assets")
+    try:  # really speak once with his own voice (downloads the voice model)
+        import voice
+        v = voice.Voice({})
+        clip = v.say("testing, one two three")
+        lines.append(f"{'ok' if clip and clip['mime'] == 'audio/wav' and len(clip['audio']) > 10000 else 'FAIL'} his voice speaks")
+    except BaseException as e:
+        lines.append(f"FAIL his voice speaks: {e!r}")
+    try:
+        from faster_whisper.vad import get_vad_model
+        import numpy as np
+        get_vad_model()(np.zeros(512 * 4, dtype=np.float32))
+        lines.append("ok speech detector")
+    except BaseException as e:
+        lines.append(f"FAIL speech detector: {e!r}")
     try:  # really run speech-to-text once (downloads the tiny model)
         import numpy as np
         model = faster_whisper.WhisperModel("tiny.en", device="cpu", compute_type="int8")
@@ -59,7 +73,7 @@ from updater import Updater  # noqa: E402
 import store  # noqa: E402
 from brain import Brain, NoModelError  # noqa: E402
 from engine import Engine  # noqa: E402
-from voice import Voice  # noqa: E402
+from voice import VOICES, Voice, list_mics  # noqa: E402
 
 
 def load_skills():
@@ -343,10 +357,17 @@ class Api:
     # ---------- settings ----------
 
     def get_settings(self):
-        return {k: self._settings.get(k) for k in ("name", "voice", "voice_style", "roblox_studio")}
+        info = {k: self._settings.get(k) for k in ("name", "voice", "voice_style", "talk_speed", "mic", "roblox_studio")}
+        info["voices"] = VOICES
+        try:
+            info["mics"] = list_mics()
+        except Exception:
+            log.exception("Couldn't list mics")
+            info["mics"] = []
+        return info
 
     def save_settings(self, changes):
-        for k in ("name", "voice", "voice_style", "roblox_studio"):
+        for k in ("name", "voice", "voice_style", "talk_speed", "mic", "roblox_studio"):
             if k in changes:
                 self._settings[k] = changes[k]
         save_settings(self._settings)
@@ -379,8 +400,11 @@ class Api:
 
     # ---------- voice ----------
 
-    def speak(self, text):
-        return self._voice.speak(text)
+    def speech_parts(self, text):
+        return self._voice.speech_parts(text)
+
+    def say(self, text):
+        return self._voice.say(text)
 
     def listen_start(self):
         try:

@@ -178,6 +178,20 @@ def use_profile(prof):
     CHATS.mkdir(parents=True, exist_ok=True)
     MEMORY_FILE = folder / "memory.json"
     current = prof
+    _drop_old_topics()
+
+
+def _drop_old_topics():
+    """Flip used to be a HouseFlipper (Roblox game) helper; he's a Valorant buddy now, so memories about
+    that project go, once."""
+    marker = MEMORY_FILE.with_name("v3-cleaned")
+    if marker.exists():
+        return
+    mems = memories()
+    kept = [m for m in mems if not re.search(r"house\s*flipp", m["text"], re.I)]
+    if len(kept) != len(mems):
+        _write(MEMORY_FILE, kept)
+    marker.write_text("ok")
 
 
 # ---------- chats ----------

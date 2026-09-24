@@ -63,6 +63,8 @@ def report():
     speech = _size(DATA / "speech") + sum(_size(d) for d in _old_speech_dirs())
     if speech:
         items.append({"what": "ears (speech-to-text)", "bytes": speech, "in_use": True})
+    if (DATA / "voice").exists():
+        items.append({"what": "his voice", "bytes": _size(DATA / "voice"), "in_use": True})
     leftovers = sum(_size(f) for f in _leftovers())
     if leftovers:
         items.append({"what": "unfinished downloads + old logs", "bytes": leftovers, "in_use": False})

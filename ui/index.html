@@ -156,22 +156,23 @@
     </div>
     <div id="settings-panel" class="panel-body">
       <label>My name<input id="set-name" maxlength="24"></label>
-      <label>My voice
-        <select id="set-voice">
-          <option value="en-US-BrianNeural">Brian (default)</option>
-          <option value="en-US-AndrewNeural">Andrew</option>
-          <option value="en-US-GuyNeural">Guy</option>
-          <option value="en-US-ChristopherNeural">Christopher</option>
-          <option value="en-US-EricNeural">Eric</option>
-        </select>
-      </label>
+      <label>My voice<select id="set-voice"></select></label>
       <label>Voice style
         <select id="set-style">
-          <option value="cute">cute (squeaky, default)</option>
+          <option value="cute">cute (default)</option>
           <option value="normal">normal</option>
           <option value="deep">deep</option>
         </select>
       </label>
+      <label>Talking speed
+        <select id="set-speed">
+          <option value="1">normal</option>
+          <option value="1.2">fast</option>
+          <option value="1.4">very fast</option>
+        </select>
+      </label>
+      <label>Microphone<select id="set-mic"></select></label>
+      <div class="set-actions"><button id="voice-test">🔊 test my voice</button></div>
       <label class="check"><input type="checkbox" id="set-roblox"> Connect to Roblox Studio</label>
       <div class="set-actions">
         <button id="set-save" class="primary">save</button>

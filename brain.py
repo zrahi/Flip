@@ -146,9 +146,15 @@ class LocalBackend:
 
     def _kwargs(self, messages, spec, max_tokens=None):
         kwargs = {"model": self._pick_model(), "messages": messages,
-                  # Qwen3 brains have a hidden "thinking" mode that writes a long essay before every
-                  # answer. Turn it off: answers come way faster.
-                  "extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
+                  # Qwen's recommended settings for chatting. presence_penalty stops him from
+                  # repeating the same openers and phrases over and over.
+                  "temperature": 0.7, "top_p": 0.8, "presence_penalty": 1.2,
+                  "extra_body": {
+                      # Qwen3 brains have a hidden "thinking" mode that writes a long essay before every
+                      # answer. Turn it off: answers come way faster.
+                      "chat_template_kwargs": {"enable_thinking": False},
+                      "top_k": 20, "repeat_penalty": 1.05,
+                  }}
         if spec:
             kwargs["tools"] = spec
         if max_tokens:
