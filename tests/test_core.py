@@ -288,8 +288,9 @@ def test_downloads_exist():
 
     assert engine.gpu_memory_gb() >= 0
     assert engine.pick_model(24) == engine.MODELS[0][1]
-    assert engine.pick_model(8) == engine.MODELS[1][1]
-    assert engine.pick_model(0) == engine.MODELS[2][1]
+    assert engine.pick_model(8) == engine.MODELS[0][1]  # an 8 GB card like the RTX 4060 gets the 8B brain
+    assert engine.pick_model(4) == engine.MODELS[-1][1]
+    assert engine.pick_model(0) == engine.MODELS[-1][1]
     for kind, parts in (("vulkan", 1), ("cuda", 2)):
         found = engine.llama_download(kind)
         assert len(found) == parts, (kind, found)
