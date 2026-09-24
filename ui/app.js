@@ -177,11 +177,13 @@ window.onText = (piece) => {
   const stick = nearBottom();
   stream.text += piece;
   stream.b.innerHTML = format(stream.text);
-  if (stream.talk) speaker.feed(piece);
-  if (voiceOn) $('#cap-pet').textContent = stream.text.replace(/```[\s\S]*?(```|$)/g, ' ').replace(/[*_`#]/g, '');
+  if (stream.talk && (voiceOn || !muted)) speaker.feed(piece);
+  if (voiceOn) $('#cap-pet').textContent = captionText(stream.text);
   if (!['working', 'talking'].includes(pet.state)) setState('thinking', 'typing…');
   if (stick) toBottom();
 };
+
+const captionText = (t) => t.replace(/```[\s\S]*?(```|$)/g, ' ').replace(/[*_`#]/g, '');
 
 // Called from Python when he throws away a reply that repeated an earlier one and tries again.
 window.onResetText = () => {
@@ -250,7 +252,8 @@ async function send(text) {
     setTitle(res.title);
     refreshChatList();
   }
-  if (talk && !res.stopped) {
+  if (voiceOn) $('#cap-pet').textContent = captionText(res.reply);
+  if (talk && (voiceOn || !muted) && !res.stopped) {
     if (!written.trim()) speaker.feed(res.reply);  // nothing came in live (like a canned reply)
     speaker.finish();  // say whatever's left
     await speaker.idle();

@@ -599,7 +599,7 @@ class Api:
 
     def pet_interrupt(self):
         if self._main:
-            self._main.evaluate_js("stopSpeaking()")
+            self._main.evaluate_js("stopReply()")
 
     def voice_state(self, on):
         self._voice_on = bool(on)
