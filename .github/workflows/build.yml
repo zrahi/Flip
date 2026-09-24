@@ -32,6 +32,7 @@ jobs:
       - name: Real brain test (downloads llama.cpp + a tiny model and chats)
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          PYTHONIOENCODING: utf-8
         shell: pwsh
         run: |
           python tests/e2e_brain.py 2>&1 | Tee-Object -FilePath e2e.txt

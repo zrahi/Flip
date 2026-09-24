@@ -5,6 +5,7 @@ import tempfile
 import time
 from pathlib import Path
 
+sys.stdout.reconfigure(encoding="utf-8")  # the Windows console can't print emoji otherwise
 os.environ["FLIP_HOME"] = tempfile.mkdtemp(prefix="flip-e2e-")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
