@@ -261,7 +261,8 @@ body.panel-open #panel { transform: translate(-50%, 0); }
 .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .panel-head h2 { font-size: 17px; }
 .panel-body { display: none; flex-direction: column; gap: 12px; overflow-y: auto; }
-#panel[data-show="memory"] #memory-panel, #panel[data-show="settings"] #settings-panel { display: flex; }
+#panel[data-show="memory"] #memory-panel, #panel[data-show="settings"] #settings-panel,
+#panel[data-show="update"] #update-panel { display: flex; }
 .add-row { display: flex; gap: 8px; }
 .add-row input, .panel-body label input:not([type="checkbox"]), .panel-body select {
   flex: 1; width: 100%; padding: 9px 12px; border-radius: 10px; outline: none; font: inherit;
@@ -347,3 +348,9 @@ button.danger {
   color: #ff8a9e; cursor: pointer; font-weight: 600;
 }
 button.danger:hover { background: #ff4d6d; color: #fff; }
+
+/* ---------- updates ---------- */
+.chip.update { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); animation: nudge 2.4s ease-in-out infinite; }
+@keyframes nudge { 0%, 88%, 100% { transform: translateY(0); } 92% { transform: translateY(-3px); } 96% { transform: translateY(0); } }
+.notes { white-space: pre-wrap; font: 13px/1.5 inherit; color: var(--muted); background: var(--panel); border-radius: 10px; padding: 10px 12px; max-height: 180px; overflow-y: auto; }
+#update-bar { height: 100%; width: 0; border-radius: 999px; background: linear-gradient(90deg, var(--accent), #8affd6); transition: width .3s ease; }

@@ -12,7 +12,7 @@ log = logging.getLogger("flip")
 
 MAX_HISTORY = 30       # messages from the current chat the AI sees
 MAX_TOOL_STEPS = 15    # tool uses per message before he stops
-MAX_TOOL_OUTPUT = 8000 # characters of tool output the AI gets to see
+MAX_TOOL_OUTPUT = 4000 # characters of tool output the AI gets to see
 
 MEMORY_TOOLS = [
     {
@@ -30,8 +30,36 @@ MEMORY_TOOLS = [
 ]
 
 
+REPLY_ROOM = 1500      # tokens kept free for his answer
+
+# Words that mean the chat is about Roblox, so Roblox Studio's tools should come along.
+ROBLOX_WORDS = ["roblox", "studio", "luau", "lua", "script", "houseflipper", "house flipper", "workspace",
+                "part", "model", "gui", "remote", "datastore", "leaderstat", "npc", "tween", "humanoid",
+                "baseplate", "terrain", "place", "obby", "tycoon", "game", "code", "bug", "error", "build"]
+
+
 class NoModelError(Exception):
     pass
+
+
+def estimate_tokens(text):
+    """Rough token count (the brain reads about 3.5 characters per token)."""
+    return len(text) // 3 + 1
+
+
+def short(text, limit):
+    text = " ".join(str(text).split())
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def slim_schema(schema):
+    """Tool schemas can carry long descriptions for every field; keep the structure, trim the words."""
+    if isinstance(schema, dict):
+        return {k: (short(v, 120) if k == "description" and isinstance(v, str) else slim_schema(v))
+                for k, v in schema.items() if k not in ("examples", "$comment")}
+    if isinstance(schema, list):
+        return [slim_schema(v) for v in schema]
+    return schema
 
 
 def _field(obj, new_name, old_name):
@@ -67,10 +95,11 @@ class RobloxLink:
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     self.tools = [
-                        {"name": t.name, "description": t.description or "",
-                         "schema": _field(t, "input_schema", "inputSchema") or {"type": "object", "properties": {}}}
+                        {"name": t.name, "description": short(t.description or "", 220),
+                         "schema": slim_schema(_field(t, "input_schema", "inputSchema") or {"type": "object", "properties": {}})}
                         for t in (await session.list_tools()).tools
                     ]
+                    log.info("Roblox tools take about %d tokens", estimate_tokens(json.dumps(self.tools)))
                     self._session = session
                     self.status = "connected"
                     log.info("Roblox Studio connected, %d tools", len(self.tools))
@@ -249,11 +278,32 @@ class Brain:
         parts.append(time.strftime("Today is %A, %B %d %Y."))
         return "\n\n".join(parts)
 
-    def _tools(self):
+    def _tools(self, topic=""):
         tools = list(MEMORY_TOOLS)
-        if self.roblox and self.roblox.status == "connected":
+        # Roblox Studio's tools are big, so they only come along when the chat is about Roblox.
+        if self.roblox and self.roblox.status == "connected" and any(k in topic.lower() for k in ROBLOX_WORDS):
             tools += self.roblox.tools
         return tools
+
+    def _fit(self, system, history, tools):
+        """Makes sure everything fits in what the brain can read at once (its context).
+        Drops the oldest messages first, then Roblox tools. Returns (history, tools)."""
+        budget = int(self.settings.get("context", 8192)) - REPLY_ROOM
+        fixed = estimate_tokens(system) + estimate_tokens(json.dumps(tools))
+        if fixed > budget * 0.7 and len(tools) > len(MEMORY_TOOLS):
+            log.warning("Tools too big (%d tokens), leaving Roblox tools out", fixed)
+            tools = list(MEMORY_TOOLS)
+            fixed = estimate_tokens(system) + estimate_tokens(json.dumps(tools))
+        kept = list(history)
+        while len(kept) > 1 and fixed + sum(estimate_tokens(m["content"]) for m in kept) > budget:
+            kept.pop(0)
+        if kept and kept[0]["role"] == "assistant" and len(kept) > 1:
+            kept.pop(0)
+        last = kept[-1]
+        room = budget - fixed - sum(estimate_tokens(m["content"]) for m in kept[:-1])
+        if estimate_tokens(last["content"]) > room:  # one giant message: keep its end
+            kept[-1] = {"role": last["role"], "content": "…" + last["content"][-max(200, room * 3):]}
+        return kept, tools
 
     def _run_tool(self, name, args):
         self.on_tool(name)
@@ -288,8 +338,17 @@ class Brain:
                 on_text(piece)
 
         fast = bool(self.settings.get("fast_mode"))
-        reply, stopped = self.backend.answer(self._system(topic), history, self._tools(), self._run_tool,
-                                             stream_text, stop, max_tokens=700 if fast else None)
+        system = self._system(topic)
+        history, tools = self._fit(system, history, self._tools(topic))
+        try:
+            reply, stopped = self.backend.answer(system, history, tools, self._run_tool,
+                                                 stream_text, stop, max_tokens=700 if fast else None)
+        except Exception as e:
+            if "exceed_context_size" not in str(e) and "context" not in str(e).lower():
+                raise
+            log.warning("Still too long for the brain, retrying short: %s", e)  # guesses were off; go minimal
+            reply, stopped = self.backend.answer(self._system(), history[-2:], list(MEMORY_TOOLS), self._run_tool,
+                                                 stream_text, stop, max_tokens=700 if fast else None)
         done = time.time()
         self.last_stats = {"secs": round(done - started, 1),
                            "first": round((first[0] or done) - started, 1)}

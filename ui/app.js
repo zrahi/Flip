@@ -603,7 +603,7 @@ document.addEventListener('click', (e) => {
 function openPanel(which) {
   body.classList.remove('sb-open');
   $('#panel').dataset.show = which;
-  $('#panel-title').textContent = which === 'memory' ? '🧠 What I remember' : '⚙️ Settings';
+  $('#panel-title').textContent = { memory: '🧠 What I remember', settings: '⚙️ Settings', update: '⬆ New update' }[which];
   body.classList.add('panel-open');
 }
 $('#panel-close').addEventListener('click', closeAll);
@@ -948,6 +948,42 @@ $('#prof-manage').addEventListener('click', () => {
   $('#prof-manage').textContent = body.classList.contains('manage') ? 'done' : 'manage profiles';
 });
 
+// ---------- updates ----------
+
+let update = null;
+
+async function checkUpdate() {
+  try { update = await api.check_update(); } catch (e) { return; }
+  $('#update-btn').hidden = !update.available;
+  if (update.available) $('#update-btn').title = `Flip ${update.version} is out (you have ${update.current})`;
+}
+
+$('#update-btn').addEventListener('click', () => {
+  $('#update-text').textContent = `Flip ${update.version} is out! You have ${update.current}.`;
+  $('#update-notes').textContent = update.notes || '';
+  $('#update-notes').hidden = !update.notes;
+  $('#update-bar-wrap').hidden = true;
+  $('#update-note').textContent = 'your chats, memory and brain stay, only the app gets swapped';
+  $('#update-go').disabled = false;
+  openPanel('update');
+});
+$('#update-later').addEventListener('click', closeAll);
+$('#update-go').addEventListener('click', async () => {
+  if (busy) stopReply();
+  if (voiceOn) endVoice();
+  $('#update-go').disabled = true;
+  if (!(await api.install_update())) { $('#update-note').textContent = 'couldn\'t start the update 😵 try again later'; return; }
+  $('#update-bar-wrap').hidden = false;
+  const poll = async () => {
+    const s = await api.update_status();
+    if (s.progress != null) $('#update-bar').style.width = `${Math.round(s.progress * 100)}%`;
+    if (s.state === 'error') { $('#update-note').textContent = `update failed 😵 ${s.error || ''}`; $('#update-go').disabled = false; return; }
+    $('#update-note').textContent = s.state === 'restarting' ? 'restarting… see you in a sec 👋' : 'downloading the new me…';
+    setTimeout(poll, 400);
+  };
+  poll();
+});
+
 // ---------- startup ----------
 
 async function pollRoblox() {
@@ -974,6 +1010,8 @@ window.addEventListener('pywebviewready', async () => {
   else showAuth(info.has_accounts ? 'login' : 'signup');
   watchBrain();
   pollRoblox();
+  setTimeout(checkUpdate, 4000);
+  setInterval(checkUpdate, 6 * 3600 * 1000);
 });
 
 setChatting(false);

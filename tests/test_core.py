@@ -126,6 +126,41 @@ def test_skills_only_when_relevant():
     assert "ALWAYS ON" in b._system("anything")
 
 
+def test_everything_fits_in_the_brain():
+    import json
+    from brain import MEMORY_TOOLS, REPLY_ROOM, Brain, estimate_tokens
+
+    b = Brain({"name": "Flip", "roblox_studio": False}, "You are {name}.", "http://127.0.0.1:9/v1")
+    huge_tools = MEMORY_TOOLS + [{"name": f"t{i}", "description": "x" * 3000, "schema": {"type": "object"}} for i in range(15)]
+    history = [{"role": "user" if i % 2 == 0 else "assistant", "content": "blah " * 400} for i in range(30)]
+    history.append({"role": "user", "content": "a"})
+    kept, tools = b._fit("system text", history, huge_tools)
+    assert tools == MEMORY_TOOLS                      # the giant tool list got dropped
+    assert kept[-1]["content"] == "a" and kept[0]["role"] == "user"
+    total = estimate_tokens("system text") + estimate_tokens(json.dumps(tools)) + sum(estimate_tokens(m["content"]) for m in kept)
+    assert total <= 8192 - REPLY_ROOM
+
+
+def test_roblox_tools_only_for_roblox_chats():
+    from brain import Brain
+
+    b = Brain({"name": "Flip", "roblox_studio": False}, "You are {name}.", "http://127.0.0.1:9/v1")
+
+    class FakeLink:
+        status = "connected"
+        tools = [{"name": "run_code", "description": "", "schema": {}}]
+
+    b.roblox = FakeLink()
+    assert "run_code" not in [t["name"] for t in b._tools("a")]
+    assert "run_code" in [t["name"] for t in b._tools("make my HouseFlipper door script work")]
+
+
+def test_update_versions():
+    from updater import _parse
+
+    assert _parse("v1.12") > _parse("1.9") and _parse("dev") == ()
+
+
 def test_utterance_detector():
     rng = np.random.default_rng(0)
     chunk = int(voice.RATE * voice.CHUNK_SEC)

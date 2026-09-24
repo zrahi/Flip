@@ -56,6 +56,7 @@
       <input id="title-edit" maxlength="60" hidden>
       <span id="roblox-dot" class="dot" title="Roblox Studio: starting"></span>
       <div class="actions">
+        <button id="update-btn" class="chip update" hidden title="A new version of Flip is out">⬆ Update</button>
         <button id="fast-btn" class="chip" title="Fast mode: a smaller brain that answers way quicker">⚡ Fast</button>
         <button id="desk-btn" class="icon-btn ghost" title="Show pet on desktop">
           <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/><circle cx="15.5" cy="10" r="2.2" class="fill"/></svg>
@@ -137,6 +138,13 @@
       <button id="panel-close" class="icon-btn" title="Close">
         <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
+    </div>
+    <div id="update-panel" class="panel-body">
+      <p id="update-text"></p>
+      <pre id="update-notes" class="notes"></pre>
+      <div class="bar" id="update-bar-wrap" hidden><div id="update-bar"></div></div>
+      <div class="set-actions"><button id="update-go" class="primary">install &amp; restart</button><button id="update-later">later</button></div>
+      <p id="update-note" class="hint"></p>
     </div>
     <div id="memory-panel" class="panel-body">
       <p class="hint">Stuff I remember about you across all chats. I add to this myself when you tell me things.</p>

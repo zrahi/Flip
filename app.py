@@ -23,14 +23,14 @@ def selftest(out_path):
     """Used by the build: checks that everything Flip needs made it into the .exe."""
     lines = []
     for mod in ("webview", "clr", "openai", "mcp", "mcp.client.stdio", "faster_whisper", "ctranslate2", "onnxruntime", "numpy",
-                "sounddevice", "edge_tts", "pystray", "PIL", "brain", "engine", "voice", "store", "storage"):
+                "sounddevice", "edge_tts", "pystray", "PIL", "brain", "engine", "voice", "store", "storage", "updater"):
         try:
             __import__(mod)
             lines.append(f"ok {mod}")
         except BaseException as e:  # sounddevice raises OSError when there's no audio device, that's fine
             lines.append(f"{'ok' if mod == 'sounddevice' and isinstance(e, OSError) else 'FAIL'} {mod}: {e!r}")
     for f in ("ui/index.html", "ui/pet.html", "ui/app.js", "ui/desk.js", "ui/pet.js", "ui/pet.css",
-              "ui/style.css", "personality.txt", "flip.ico", "skills/valorant.txt"):
+              "ui/style.css", "personality.txt", "flip.ico", "skills/valorant.txt", "version.txt"):
         lines.append(f"{'ok' if (RES / f).exists() else 'FAIL'} file {f}")
     import faster_whisper
     assets = os.path.join(os.path.dirname(faster_whisper.__file__), "assets")
@@ -55,6 +55,7 @@ import webview  # noqa: E402
 from openai import APIConnectionError, APIStatusError  # noqa: E402
 
 import storage  # noqa: E402
+from updater import Updater  # noqa: E402
 import store  # noqa: E402
 from brain import Brain, NoModelError  # noqa: E402
 from engine import Engine  # noqa: E402
@@ -153,6 +154,7 @@ class Api:
         self._brain.on_tool = self._on_tool
         self._engine.on_ready = self._warm_up
         self._voice = Voice(settings)
+        self._updater = Updater()
         self._main = None
         self._pet = None
         self._tray = None
@@ -294,7 +296,9 @@ class Api:
             return {"error": "bro my brain has no model loaded 😭"}
         except APIStatusError as e:
             log.exception("Model error")
-            return {"error": f"my brain threw an error 😵 ({e.status_code}): {e.message}"}
+            if "context" in str(e).lower():
+                return {"error": "that was too much for my brain to read at once 😵 try a new chat"}
+            return {"error": f"my brain glitched 😵 try again? ({e.status_code})"}
         except Exception as e:
             log.exception("Chat failed")
             return {"error": f"something broke 😭 ({e})"}
@@ -360,6 +364,15 @@ class Api:
         storage.delete_everything(bool(delete_app))
         threading.Timer(0.5, self.quit).start()
         return True
+
+    def check_update(self):
+        return self._updater.check()
+
+    def install_update(self):
+        return self._updater.install(self.quit)
+
+    def update_status(self):
+        return self._updater.status
 
     def open_folder(self):
         os.startfile(DATA) if sys.platform == "win32" else None
