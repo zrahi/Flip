@@ -47,8 +47,19 @@ def save_settings(settings):
     (DATA / "settings.json").write_text(json.dumps(settings, indent=2), encoding="utf-8")
 
 
+# Built-in personalities from older versions. If the user's copy still matches one of these (they never
+# edited it), it gets replaced with the current one.
+OLD_PERSONALITIES = {"abef6351e80dae97bb00812ddda0568e0c4c60265c1c0d33ac409472316e8314"}
+
+
 def personality_file():
+    import hashlib
+
     path = DATA / "personality.txt"
+    if path.exists():
+        current = hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+        if current in OLD_PERSONALITIES:
+            path.unlink()
     if not path.exists():
         shutil.copy(RES / "personality.txt", path)
     return path

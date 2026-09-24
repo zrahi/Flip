@@ -86,6 +86,18 @@ def test_speakable():
     assert s == "yo bet: I dropped the code in the chat. see the link fr"
 
 
+def test_skills_only_when_relevant():
+    from brain import Brain, parse_skill
+
+    sk = parse_skill("KEYWORDS: valorant, jett\nVALORANT TIPS")
+    assert sk == {"keywords": ["valorant", "jett"], "text": "VALORANT TIPS"}
+    b = Brain({"name": "Flip", "roblox_studio": False}, "You are {name}.", "http://127.0.0.1:9/v1",
+              ["KEYWORDS: valorant, jett\nVALORANT TIPS", "ALWAYS ON"])
+    assert "VALORANT TIPS" not in b._system("make me a door script")
+    assert "VALORANT TIPS" in b._system("how do I play Jett")
+    assert "ALWAYS ON" in b._system("anything")
+
+
 def test_utterance_detector():
     rng = np.random.default_rng(0)
     chunk = int(voice.RATE * voice.CHUNK_SEC)
@@ -177,6 +189,8 @@ def test_brain_memory_tools_and_streaming():
     system = FakeModel.last["messages"][0]["content"]
     assert "name is Marru" in system and "You're talking to Marru" in system and "VALORANT know-how" in system
     assert FakeModel.last["model"] == "qwen"
+    assert FakeModel.last["chat_template_kwargs"] == {"enable_thinking": False}  # no slow hidden thinking
+    assert b.last_stats["secs"] >= 0
 
     b.chat("c0ffee", "again", voice=True)  # voice note goes on the message, the system text stays the same
     assert FakeModel.last["messages"][0]["content"] == system

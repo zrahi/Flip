@@ -110,17 +110,36 @@ class LocalBackend:
             self.model = ids[0]
         return self.model
 
-    def answer(self, system, history, tools, run_tool, on_text=None, stop=None):
+    @staticmethod
+    def _spec(tools):
+        return [{"type": "function", "function": {"name": t["name"], "description": t["description"],
+                                                  "parameters": t["schema"]}} for t in tools]
+
+    def _kwargs(self, messages, spec, max_tokens=None):
+        kwargs = {"model": self._pick_model(), "messages": messages,
+                  # Qwen3 brains have a hidden "thinking" mode that writes a long essay before every
+                  # answer. Turn it off: answers come way faster.
+                  "extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
+        if spec:
+            kwargs["tools"] = spec
+        if max_tokens:
+            kwargs["max_tokens"] = max_tokens
+        return kwargs
+
+    def warm_up(self, system, tools):
+        """Reads the system text once in advance, so the first real message is quick."""
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": "hi"}]
+        self.client.chat.completions.create(**self._kwargs(messages, self._spec(tools), max_tokens=1))
+
+    def answer(self, system, history, tools, run_tool, on_text=None, stop=None, max_tokens=None):
         """Runs the model (and any tools it asks for). Streams text through on_text as it's written.
         Returns (reply, stopped)."""
         messages = [{"role": "system", "content": system}] + history
-        spec = [{"type": "function", "function": {"name": t["name"], "description": t["description"],
-                                                  "parameters": t["schema"]}} for t in tools]
+        spec = self._spec(tools)
         shown = ""
         for _ in range(MAX_TOOL_STEPS):
-            kwargs = {"model": self._pick_model(), "messages": messages, "stream": True}
-            if spec:
-                kwargs["tools"] = spec
+            kwargs = self._kwargs(messages, spec, max_tokens)
+            kwargs["stream"] = True
             stream = self.client.chat.completions.create(**kwargs)
             text, calls = "", {}
             try:
@@ -167,6 +186,16 @@ class LocalBackend:
         return clean_reply(shown) + "\n\nbro I did like 15 steps and got lost 😭 tell me to keep going", False
 
 
+def parse_skill(text):
+    """A skill file can start with a line like "KEYWORDS: valorant, jett, ..."; it's only used when
+    the chat mentions one of them. Without that line it's always used."""
+    first, _, rest = text.partition("\n")
+    if first.upper().startswith("KEYWORDS:"):
+        keywords = [k.strip().lower() for k in first.split(":", 1)[1].split(",") if k.strip()]
+        return {"keywords": keywords, "text": rest.strip()}
+    return {"keywords": [""], "text": text.strip()}
+
+
 def visible(text):
     """The part of a streamed reply that's okay to show (hides <think>…</think> blocks)."""
     if "<think>" in text:
@@ -182,17 +211,26 @@ def visible(text):
 class Brain:
     def __init__(self, settings, personality, local_url, skills=()):
         self.name = settings["name"]
+        self.settings = settings
         self.personality = personality.replace("{name}", self.name)
-        self.skills = list(skills)
+        self.skills = [parse_skill(s) for s in skills]
+        self.last_stats = {}
         self.on_tool = lambda name: None
         self.roblox = RobloxLink(settings["roblox_command"]) if settings.get("roblox_studio") else None
 
         self.backend = LocalBackend(local_url)
 
+    def warm_up(self):
+        try:
+            self.backend.warm_up(self._system(), self._tools())
+            log.info("Brain warmed up")
+        except Exception:
+            log.exception("Warm-up failed")
+
     def roblox_status(self):
         return self.roblox.status if self.roblox else "off"
 
-    def _system(self):
+    def _system(self, topic=""):
         parts = [self.personality]
         if store.current:
             parts.append(f"You're talking to {store.current['name']} (that's the name on their profile).")
@@ -202,7 +240,10 @@ class Brain:
                          "\n".join(f"- [{m['id']}] {m['text']}" for m in mems))
         else:
             parts.append("You don't remember anything about the user yet. Use the remember tool when you learn about them.")
-        parts.extend(self.skills)
+        # Extra know-how (like Valorant) only goes in when the chat is about it: every word here has to
+        # be read before he can answer, so a shorter text means a faster reply.
+        topic = topic.lower()
+        parts.extend(sk["text"] for sk in self.skills if any(k in topic for k in sk["keywords"]))
         # Only the date (not the time): keeping this text the same between messages lets the
         # brain reuse its work on the chat so far instead of re-reading everything each time.
         parts.append(time.strftime("Today is %A, %B %d %Y."))
@@ -232,12 +273,27 @@ class Brain:
     def chat(self, chat_id, text, voice=False, on_text=None, stop=None):
         chat = store.load_chat(chat_id) or store.new_chat(chat_id)
         history = [{"role": m["role"], "content": m["content"]} for m in chat["messages"][-MAX_HISTORY:]]
+        topic = " ".join(m["content"] for m in history[-6:]) + " " + text
         prompt = text
         if voice:
             prompt += ("\n\n(We're in a live voice call: answer in 1-2 short spoken sentences, "
                        "no code blocks, lists or emojis unless I ask.)")
         history.append({"role": "user", "content": prompt})
-        reply, stopped = self.backend.answer(self._system(), history, self._tools(), self._run_tool, on_text, stop)
+        started, first = time.time(), [None]
+
+        def stream_text(piece):
+            if first[0] is None:
+                first[0] = time.time()
+            if on_text:
+                on_text(piece)
+
+        fast = bool(self.settings.get("fast_mode"))
+        reply, stopped = self.backend.answer(self._system(topic), history, self._tools(), self._run_tool,
+                                             stream_text, stop, max_tokens=700 if fast else None)
+        done = time.time()
+        self.last_stats = {"secs": round(done - started, 1),
+                           "first": round((first[0] or done) - started, 1)}
+        log.info("Reply took %.1fs (first words after %.1fs)", done - started, (first[0] or done) - started)
         if not reply:
             reply = "(stopped)" if stopped else "💀 my brain blanked, say that again?"
         if not chat["messages"]:

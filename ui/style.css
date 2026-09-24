@@ -169,6 +169,7 @@ body.chatting #chat { display: block; }
 .who::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 .b { overflow-wrap: anywhere; animation: pop-in .18s ease-out; }
 .msg.error .b { color: #ffc2c2; }
+.msg .meta { color: var(--muted); font-size: 12px; margin-top: 4px; opacity: .7; }
 .msg .stopped { color: var(--muted); font-size: 12.5px; font-style: italic; margin-top: 4px; }
 .note { align-self: center; font-size: 12px; color: var(--muted); background: var(--panel); padding: 3px 10px; border-radius: 999px; }
 .typing { display: inline-flex; gap: 4px; padding: 6px 0; }

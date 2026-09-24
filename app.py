@@ -135,8 +135,9 @@ def dark_title_bar(window):
         for attr in (20, 19):  # DWMWA_USE_IMMERSIVE_DARK_MODE (newer, then older Windows 10)
             if ctypes.windll.dwmapi.DwmSetWindowAttribute(ctypes.c_void_p(hwnd), attr, ctypes.byref(on), 4) == 0:
                 break
-        # nudge the window so Windows repaints the title bar right away
-        _on_ui_thread(form, lambda: (setattr(form, "Width", form.Width + 1), setattr(form, "Width", form.Width - 1)))
+        # make Windows redraw the frame so the dark title bar shows up right away
+        flags = 0x0001 | 0x0002 | 0x0004 | 0x0020  # SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED
+        ctypes.windll.user32.SetWindowPos(ctypes.c_void_p(hwnd), None, 0, 0, 0, 0, flags)
     except Exception:
         log.exception("Couldn't make the title bar dark")
 
@@ -149,6 +150,7 @@ class Api:
         self._engine = Engine(settings)
         self._brain = Brain(settings, personality_file().read_text(encoding="utf-8"), self._engine.url, load_skills())
         self._brain.on_tool = self._on_tool
+        self._engine.on_ready = self._warm_up
         self._voice = Voice(settings)
         self._main = None
         self._pet = None
@@ -212,8 +214,13 @@ class Api:
 
     # ---------- profiles ----------
 
+    def _warm_up(self):
+        if store.current is not None and self._engine.status["state"] == "ready":
+            self._brain.warm_up()
+
     def _enter(self, prof):
         store.use_profile(prof)
+        threading.Thread(target=self._warm_up, daemon=True).start()
         self._settings["last_profile"] = prof["id"]
         save_settings(self._settings)
         chats = store.list_chats()
@@ -278,7 +285,8 @@ class Api:
             flush()
             if self._pet is not None and (self._chat_hidden or voice) and not stopped:
                 self.pet_say(reply)
-            return {"reply": reply, "stopped": stopped, "chat_id": chat["id"], "title": chat["title"]}
+            return {"reply": reply, "stopped": stopped, "chat_id": chat["id"], "title": chat["title"],
+                    "secs": self._brain.last_stats.get("secs")}
         except APIConnectionError:
             return {"error": "yo I can't reach my brain 💀 try closing and reopening me."}
         except NoModelError:

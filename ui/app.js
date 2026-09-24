@@ -230,6 +230,7 @@ async function send(text) {
 
   b.innerHTML = format(res.reply);
   if (res.stopped) row.insertAdjacentHTML('beforeend', '<div class="stopped">stopped</div>');
+  else if (res.secs != null) row.insertAdjacentHTML('beforeend', `<div class="meta">${res.secs}s${fast ? ' · ⚡ fast' : ''}</div>`);
   if (voiceOn) $('#cap-pet').textContent = res.reply;
   if (chatTitle === 'New chat' || !allChats.some((c) => c.id === chatId)) {
     setTitle(res.title);
@@ -643,7 +644,8 @@ async function openSettings() {
   $('#set-note').textContent = '';
   $('#pw-note').textContent = '';
   const b = await api.brain_status();
-  $('#brain-info').textContent = b.model ? `brain: ${b.model}${b.fast ? ' (fast mode)' : ''}` : '';
+  $('#brain-info').textContent = b.model
+    ? `brain: ${b.model}${b.fast ? ' (fast mode)' : ''}${b.hardware ? ` · running on ${b.hardware}` : ''}` : '';
   openPanel('settings');
 }
 $('#set-save').addEventListener('click', async () => {
@@ -664,10 +666,12 @@ $('#pw-save').addEventListener('click', async () => {
 
 // ---------- fast mode ----------
 
-function showFast(on) {
+function showFast(on, s = {}) {
   fast = !!on;
   $('#fast-btn').classList.toggle('on', fast);
-  $('#fast-btn').title = fast ? 'Fast mode is on: quicker, a bit less smart. Click for smart mode.' : 'Fast mode: a smaller brain that answers way quicker';
+  const info = s.model ? `\nbrain: ${s.model}${s.hardware ? ` on ${s.hardware}` : ''}` : '';
+  $('#fast-btn').title = (fast ? 'Fast mode is on: quicker, a bit less smart. Click for smart mode.'
+    : 'Fast mode: a smaller brain that answers way quicker') + info;
 }
 $('#fast-btn').addEventListener('click', async () => {
   if (busy || voiceOn) return;
@@ -692,11 +696,13 @@ $('#desk-btn').addEventListener('click', async () => {
 async function watchBrain() {
   let s;
   try { s = await api.brain_status(); } catch (e) { setTimeout(watchBrain, 1000); return; }
-  if ('fast' in s) showFast(s.fast);
+  if ('fast' in s) showFast(s.fast, s);
   if (s.state === 'ready') {
     if (body.classList.contains('setup')) {
       body.classList.remove('setup', 'setup-error');
-      flash('happy', 1400, fast ? 'fast mode on ⚡ let\'s go' : 'brain loaded, let\'s cook 🧠🔥');
+      const cpu = /^CPU/.test(s.hardware || '');
+      flash('happy', 2500, cpu ? 'brain loaded, but only on your processor 🐢 replies will be slower'
+        : fast ? 'fast mode on ⚡ let\'s go' : 'brain loaded, let\'s cook 🧠🔥');
     }
     return;
   }

@@ -148,6 +148,7 @@ class Engine:
         self.status = {"state": "starting", "title": "waking up…", "detail": "", "progress": None}
         self.url = settings.get("llm_url") or f"http://127.0.0.1:{PORT}/v1"
         self.model_name = ""
+        self.on_ready = None
 
     def start(self):
         threading.Thread(target=self._run, daemon=True).start()
@@ -161,7 +162,12 @@ class Engine:
 
     def _set(self, state, title, detail="", progress=None):
         self.status = {"state": state, "title": title, "detail": detail, "progress": progress,
-                       "model": self.model_name, "fast": bool(self._s.get("fast_mode"))}
+                       "model": self.model_name, "fast": bool(self._s.get("fast_mode")),
+                       "hardware": self.hardware() if state == "ready" and not self._s.get("llm_url") else ""}
+        if state == "ready":
+            log.info("Brain ready: %s on %s", self.model_name, self.status["hardware"] or "your own server")
+            if self.on_ready:
+                threading.Thread(target=self.on_ready, daemon=True).start()
 
     def _run(self):
         if not self._lock.acquire(blocking=False):
@@ -247,7 +253,10 @@ class Engine:
         for gpu in (True, False):
             self._set("loading", "loading my brain into memory…", "almost there", None)
             args = [str(server), "-m", str(model), "--host", "127.0.0.1", "--port", str(PORT),
-                    "-c", CONTEXT, "--reasoning", "off", "--no-webui"]
+                    "-c", CONTEXT, "--reasoning", "off", "--no-webui",
+                    # one conversation slot: every message lands where the last one was, so the brain
+                    # reuses what it already read instead of starting over
+                    "-np", "1"]
             if not gpu:
                 args += ["-ngl", "0"]
             self._proc = subprocess.Popen(
@@ -263,6 +272,23 @@ class Engine:
             self.stop()
             log.warning("Brain server stopped (gpu=%s), exit code %s", gpu, self._proc.returncode)
         raise RuntimeError("the brain crashed while starting. Details are in brain.log in Flip's folder.")
+
+    def hardware(self):
+        """What brain.log says about where the brain runs: "GPU (NVIDIA …, 37/37 layers)" or "CPU"."""
+        import re
+
+        try:
+            text = (DATA / "brain.log").read_text(encoding="utf-8", errors="ignore")[-200_000:]
+        except OSError:
+            return ""
+        text = text[text.rfind("load_model: loading model"):] if "load_model: loading model" in text else text
+        layers = re.findall(r"offloaded (\d+)/(\d+) layers to GPU", text)
+        device = re.findall(r"using device (\w+) \(([^)]+)\)", text) or re.findall(r"ggml_vulkan: 0 = ([^|\n]+)", text)
+        name = (device[-1][1] if device and isinstance(device[-1], tuple) else (device[-1] if device else "")).strip()
+        if layers and int(layers[-1][0]) > 0:
+            done, total = layers[-1]
+            return f"GPU{' (' + name + ')' if name else ''}, {done}/{total} layers"
+        return "CPU only (slow: no graphics card found, or it doesn't have enough memory)"
 
     def _healthy(self):
         try:
