@@ -70,6 +70,7 @@
       <button id="switch-btn" class="drawer-item">👤 <span id="who-name">Profile</span> · switch</button>
       <button id="memory-btn" class="drawer-item">🧠 What I remember</button>
       <button id="settings-btn" class="drawer-item">⚙️ Settings</button>
+      <button id="drawer-logout" class="drawer-item">🚪 Log out</button>
     </div>
   </aside>
 
@@ -105,10 +106,39 @@
         <button id="set-folder">open my folder</button>
       </div>
       <p id="set-note" class="hint"></p>
+      <div class="sep"></div>
+      <label>Change account password
+        <input id="pw-old" type="password" placeholder="current password" autocomplete="off">
+        <input id="pw-new" type="password" placeholder="new password (6+ characters)" autocomplete="off">
+      </label>
+      <div class="set-actions"><button id="pw-save">change password</button></div>
+      <p id="pw-note" class="hint"></p>
+    </div>
+  </section>
+
+  <section id="auth">
+    <div class="brand">Flip</div>
+    <p class="hint center">your AI buddy that lives on your PC</p>
+    <div class="tabs">
+      <button id="tab-login" class="on">log in</button>
+      <button id="tab-signup">create account</button>
+    </div>
+    <div class="prof-box">
+      <input id="auth-user" placeholder="username" maxlength="20" autocomplete="off" spellcheck="false">
+      <div class="pw">
+        <input id="auth-pass" type="password" placeholder="password" autocomplete="off">
+        <button id="pw-eye" class="eye" title="Show password">show</button>
+      </div>
+      <input id="auth-pass2" type="password" placeholder="type the password again" autocomplete="off" hidden>
+      <label class="check"><input type="checkbox" id="auth-remember" checked> keep me logged in on this PC</label>
+      <p id="auth-error" class="err"></p>
+      <button id="auth-go" class="primary big">log in</button>
+      <p id="auth-note" class="hint center small"></p>
     </div>
   </section>
 
   <section id="profiles">
+    <div class="acct-bar"><span id="acct-name"></span><button id="log-out" class="link-btn">log out</button></div>
     <h1>who's chatting? 👀</h1>
     <p class="hint center">everyone gets their own chats and memory</p>
     <div id="prof-grid"></div>

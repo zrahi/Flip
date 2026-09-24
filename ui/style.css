@@ -241,3 +241,32 @@ body.manage .prof:not(.add) .av::after {
 .prof-box .set-actions { justify-content: center; }
 .err { color: #ff8a8a; font-size: 13px; min-height: 18px; text-align: center; }
 body.picking #prof-grid, body.picking #prof-manage, body.picking #profiles > .hint { display: none; }
+
+/* ---------- log in ---------- */
+#auth {
+  position: absolute; inset: 0; z-index: 10; background: var(--bg);
+  display: none; flex-direction: column; align-items: center; padding: 64px 22px 24px; gap: 8px; overflow-y: auto;
+}
+body.auth #auth { display: flex; }
+.brand {
+  font-size: 44px; font-weight: 800; letter-spacing: -1px;
+  background: linear-gradient(135deg, #8affd6, var(--accent) 45%, #ff82a6); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.tabs { display: flex; gap: 4px; margin-top: 20px; padding: 4px; border-radius: 999px; background: var(--panel); }
+.tabs button { padding: 7px 16px; border-radius: 999px; border: none; background: none; color: var(--muted); cursor: pointer; font-weight: 600; }
+.tabs button.on { background: var(--panel-2); color: var(--text); }
+.pw { position: relative; display: flex; }
+.pw input { flex: 1; padding-right: 60px; }
+.eye { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--muted); cursor: pointer; font-size: 12px; }
+#auth label.check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--muted); }
+#auth label.check input { width: 17px; height: 17px; accent-color: var(--accent); }
+button.big { padding: 12px; border-radius: 12px; border: none; background: var(--accent); color: #0f2a20; font-weight: 700; font-size: 15px; cursor: pointer; }
+button.big:disabled { opacity: .6; }
+.small { font-size: 12px; }
+.acct-bar { position: absolute; top: 14px; left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 13px; }
+.acct-bar .link-btn { margin: 0; }
+.sep { height: 1px; background: var(--border); margin: 4px 0; }
+.panel-body label input[type="password"] {
+  width: 100%; padding: 9px 12px; border-radius: 10px; outline: none; font: inherit;
+  background: var(--panel); color: var(--text); border: 1px solid var(--border); user-select: text;
+}

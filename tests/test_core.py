@@ -15,6 +15,28 @@ from brain import Brain
 HERE = Path(__file__).resolve().parent
 
 
+def test_accounts_and_passwords():
+    acct = store.create_account("zrahi", "hunter22")
+    raw = (store.ACCOUNTS_FILE).read_text()
+    assert "hunter22" not in raw                       # password is never saved as-is
+    with pytest.raises(ValueError):
+        store.create_account("ZRAHI", "whatever1")     # username taken
+    with pytest.raises(ValueError):
+        store.create_account("x", "whatever1")         # username too short
+    with pytest.raises(ValueError):
+        store.create_account("sam", "123")             # password too short
+    assert store.login("Zrahi", "hunter22")["id"] == acct["id"]
+    for _ in range(store.MAX_TRIES):
+        with pytest.raises(ValueError, match="wrong"):
+            store.login("zrahi", "nope")
+    with pytest.raises(ValueError, match="wait"):      # locked out after too many tries
+        store.login("zrahi", "hunter22")
+    store._tries.clear()
+    store.change_password(acct["id"], "hunter22", "newpass9")
+    assert store.login("zrahi", "newpass9")
+    store.use_account(acct)
+
+
 def test_profiles_keep_things_separate():
     a = store.create_profile("Marru", "1234")
     b = store.create_profile("Sam")
@@ -36,6 +58,11 @@ def test_profiles_keep_things_separate():
     assert [p["name"] for p in store.public_profiles()] == ["Marru"]
     store.use_profile(a)
     store.forget(store.memories()[0]["id"])
+
+    other = store.create_account("friend", "password1")  # another account can't see these profiles
+    store.use_account(other)
+    assert store.public_profiles() == []
+    store.use_account(store.login("zrahi", "newpass9"))
 
 
 def test_chats_and_memory():

@@ -1,26 +1,37 @@
-"""Profiles, chats and long-term memory, saved as JSON files in Flip's folder.
+"""Accounts, profiles, chats and long-term memory, saved as JSON files in Flip's folder.
 
-Every profile has its own chats and memory: DATA/profiles/<id>/chats/ and memory.json.
+DATA/accounts.json                           usernames + scrambled passwords
+DATA/accounts/<account>/profiles.json        the profiles inside that account
+DATA/accounts/<account>/<profile>/chats/     that profile's chats
+DATA/accounts/<account>/<profile>/memory.json
 """
 
 import hashlib
+import hmac
 import json
 import os
+import re
+import shutil
 import threading
 import time
 import uuid
 
 from paths import DATA
 
-PROFILES = DATA / "profiles"
-PROFILES.mkdir(exist_ok=True)
-PROFILES_FILE = DATA / "profiles.json"
+ACCOUNTS_FILE = DATA / "accounts.json"
+ACCOUNTS = DATA / "accounts"
+ACCOUNTS.mkdir(exist_ok=True)
 COLORS = ["#5ff0b8", "#ff5e87", "#6c5ce7", "#ffb84d", "#4dc3ff", "#c56cf0"]
+MAX_TRIES = 5          # wrong passwords before a lockout
+LOCKOUT_SEC = 60
 
 _lock = threading.Lock()
-CHATS = None        # set by use_profile()
+_tries = {}            # username -> (wrong attempts, locked until)
+account = None         # the account that's logged in
+PROFILES_FILE = None   # set by use_account()
+current = None         # the profile that's chatting
+CHATS = None           # set by use_profile()
 MEMORY_FILE = None
-current = None      # the profile that's logged in
 
 
 def _read(path, default):
@@ -36,14 +47,89 @@ def _write(path, data):
     tmp.replace(path)
 
 
-# ---------- profiles ----------
+def _hash(secret, salt):
+    """Scrambles a password/PIN so it can be checked but never read back."""
+    return hashlib.pbkdf2_hmac("sha256", str(secret).encode(), bytes.fromhex(salt), 200_000).hex()
 
-def _hash(pin, salt):
-    return hashlib.sha256((salt + pin).encode()).hexdigest()
 
+def _matches(secret, salt, stored):
+    return hmac.compare_digest(_hash(secret, salt), stored)
+
+
+# ---------- accounts ----------
+
+def accounts():
+    return _read(ACCOUNTS_FILE, [])
+
+
+def get_account(account_id):
+    return next((a for a in accounts() if a["id"] == account_id), None)
+
+
+def create_account(username, password):
+    username = str(username).strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.]{3,20}", username):
+        raise ValueError("username: 3-20 letters, numbers, _ or .")
+    if len(str(password)) < 6:
+        raise ValueError("password needs at least 6 characters")
+    with _lock:
+        all_ = accounts()
+        if any(a["username"].lower() == username.lower() for a in all_):
+            raise ValueError("that username's taken")
+        salt = os.urandom(16).hex()
+        acct = {"id": uuid.uuid4().hex[:10], "username": username, "salt": salt,
+                "password": _hash(password, salt), "created": time.time()}
+        all_.append(acct)
+        _write(ACCOUNTS_FILE, all_)
+    return acct
+
+
+def login(username, password):
+    """Returns the account, or raises ValueError with a message to show."""
+    key = str(username).strip().lower()
+    count, until = _tries.get(key, (0, 0))
+    if time.time() < until:
+        raise ValueError(f"too many wrong tries, wait {int(until - time.time()) + 1}s ⏳")
+    acct = next((a for a in accounts() if a["username"].lower() == key), None)
+    if acct and _matches(password, acct["salt"], acct["password"]):
+        _tries.pop(key, None)
+        return acct
+    count += 1
+    _tries[key] = (0, time.time() + LOCKOUT_SEC) if count >= MAX_TRIES else (count, 0)
+    raise ValueError("wrong username or password 🙅")
+
+
+def change_password(acct_id, old, new):
+    with _lock:
+        all_ = accounts()
+        acct = next((a for a in all_ if a["id"] == acct_id), None)
+        if not acct or not _matches(old, acct["salt"], acct["password"]):
+            raise ValueError("current password is wrong 🙅")
+        if len(str(new)) < 6:
+            raise ValueError("new password needs at least 6 characters")
+        acct["salt"] = os.urandom(16).hex()
+        acct["password"] = _hash(new, acct["salt"])
+        _write(ACCOUNTS_FILE, all_)
+
+
+def use_account(acct):
+    global account, PROFILES_FILE, current, CHATS, MEMORY_FILE
+    folder = ACCOUNTS / acct["id"]
+    folder.mkdir(parents=True, exist_ok=True)
+    account = acct
+    PROFILES_FILE = folder / "profiles.json"
+    current = CHATS = MEMORY_FILE = None
+
+
+def log_out():
+    global account, PROFILES_FILE, current, CHATS, MEMORY_FILE
+    account = PROFILES_FILE = current = CHATS = MEMORY_FILE = None
+
+
+# ---------- profiles (inside the logged-in account) ----------
 
 def profiles():
-    return _read(PROFILES_FILE, [])
+    return _read(PROFILES_FILE, []) if PROFILES_FILE else []
 
 
 def public_profiles():
@@ -61,7 +147,7 @@ def create_profile(name, pin=""):
         all_ = profiles()
         if any(p["name"].lower() == name.lower() for p in all_):
             raise ValueError("that name's taken")
-        salt = os.urandom(8).hex()
+        salt = os.urandom(16).hex()
         prof = {"id": uuid.uuid4().hex[:10], "name": name, "color": COLORS[len(all_) % len(COLORS)],
                 "salt": salt, "pin": _hash(pin, salt) if pin else None, "created": time.time()}
         all_.append(prof)
@@ -73,23 +159,21 @@ def check_pin(profile_id, pin):
     prof = next((p for p in profiles() if p["id"] == profile_id), None)
     if prof is None:
         return None
-    if prof.get("pin") and _hash(str(pin or ""), prof["salt"]) != prof["pin"]:
+    if prof.get("pin") and not _matches(str(pin or ""), prof["salt"], prof["pin"]):
         return None
     return prof
 
 
 def delete_profile(profile_id):
-    import shutil
-
     with _lock:
         _write(PROFILES_FILE, [p for p in profiles() if p["id"] != profile_id])
     if str(profile_id).isalnum():
-        shutil.rmtree(PROFILES / profile_id, ignore_errors=True)
+        shutil.rmtree(ACCOUNTS / account["id"] / profile_id, ignore_errors=True)
 
 
 def use_profile(prof):
     global CHATS, MEMORY_FILE, current
-    folder = PROFILES / prof["id"]
+    folder = ACCOUNTS / account["id"] / prof["id"]
     CHATS = folder / "chats"
     CHATS.mkdir(parents=True, exist_ok=True)
     MEMORY_FILE = folder / "memory.json"

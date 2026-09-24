@@ -22,12 +22,43 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller pytest pytest-github-actions-annotate-failures
+          pip install -r requirements.txt pyinstaller pyinstaller-hooks-contrib pytest pytest-github-actions-annotate-failures
 
       - name: Tests
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python -m pytest tests -v -p no:cacheprovider
+
+      - name: Build Flip.exe
+        shell: pwsh
+        run: |
+          $pyiArgs = @(
+            "--noconfirm", "--onefile", "--windowed", "--name", "Flip", "--icon", "flip.ico",
+            "--add-data", "ui;ui", "--add-data", "personality.txt;.", "--add-data", "flip.ico;.",
+            "--collect-all", "faster_whisper", "--collect-all", "ctranslate2", "--collect-all", "onnxruntime",
+            "--collect-all", "webview", "--collect-submodules", "mcp", "--collect-data", "edge_tts",
+            "--hidden-import", "pystray._win32", "--hidden-import", "clr",
+            "app.py"
+          )
+          python -m PyInstaller @pyiArgs 2>&1 | Tee-Object -FilePath pyi.txt
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path dist\Flip.exe)) {
+            $tail = (Get-Content pyi.txt -Tail 25) -join ' // '
+            Write-Output "::error title=PyInstaller failed::$tail"
+            exit 1
+          }
+
+      - name: Check Flip.exe has everything
+        shell: pwsh
+        run: |
+          $out = "$env:RUNNER_TEMP\selftest.txt"
+          $p = Start-Process -FilePath dist\Flip.exe -ArgumentList "--selftest", $out -Wait -PassThru
+          Get-Content $out
+          $text = Get-Content $out -Raw
+          if ($text -notmatch "DONE" -or $text -match "FAIL") {
+            Write-Output "::error title=Flip.exe selftest failed::$(($text -split "`n" | Where-Object { $_ -match 'FAIL' }) -join ' // ')"
+            throw "selftest failed"
+          }
+          "Flip.exe size: {0:N0} MB" -f ((Get-Item dist\Flip.exe).Length / 1MB)
 
       - name: Real brain test (downloads llama.cpp + a tiny model and chats)
         env:
@@ -42,29 +73,6 @@ jobs:
             if (Test-Path "$env:TEMP") { Get-ChildItem $env:TEMP -Filter brain.log -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $b = (Get-Content $_.FullName -Tail 15) -join ' // '; Write-Output "::error title=brain.log::$b" } }
             exit 1
           }
-
-      - name: Build Flip.exe
-        run: >
-          pyinstaller --noconfirm --onefile --windowed --name Flip --icon flip.ico
-          --add-data "ui;ui" --add-data "personality.txt;." --add-data "flip.ico;."
-          --collect-all faster_whisper --collect-all ctranslate2 --collect-all onnxruntime
-          --collect-all webview --collect-all pythonnet --collect-all clr_loader
-          --collect-submodules mcp --collect-data edge_tts
-          --hidden-import pystray._win32
-          app.py
-
-      - name: Check Flip.exe has everything
-        shell: pwsh
-        run: |
-          $out = "$env:RUNNER_TEMP\selftest.txt"
-          $p = Start-Process -FilePath dist\Flip.exe -ArgumentList "--selftest", $out -Wait -PassThru
-          Get-Content $out
-          $text = Get-Content $out -Raw
-          if ($text -notmatch "DONE" -or $text -match "FAIL") {
-            Write-Output "::error title=Flip.exe selftest failed::$(($text -split "`n" | Where-Object { $_ -match 'FAIL' }) -join ' // ')"
-            throw "selftest failed"
-          }
-          "Flip.exe size: {0:N0} MB" -f ((Get-Item dist\Flip.exe).Length / 1MB)
 
       - uses: actions/upload-artifact@v4
         with:

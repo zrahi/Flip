@@ -77,8 +77,54 @@ class Api:
     # ---------- startup info ----------
 
     def hello(self):
-        return {"name": self._settings["name"], "pet": self._pet is not None,
-                "profiles": store.public_profiles(), "last": self._settings.get("last_profile")}
+        info = {"name": self._settings["name"], "pet": self._pet is not None, "account": None,
+                "has_accounts": bool(store.accounts())}
+        remembered = store.get_account(self._settings.get("remember_account") or "")
+        if store.account is None and remembered:
+            store.use_account(remembered)
+        if store.account is not None:
+            info["account"] = self._account_info()
+        return info
+
+    # ---------- accounts ----------
+
+    def _account_info(self):
+        return {"username": store.account["username"], "profiles": store.public_profiles(),
+                "last": self._settings.get("last_profile")}
+
+    def _logged_in(self, acct, remember):
+        store.use_account(acct)
+        self._settings["remember_account"] = acct["id"] if remember else None
+        save_settings(self._settings)
+        return {"account": self._account_info()}
+
+    def create_account(self, username, password, remember=True):
+        try:
+            return self._logged_in(store.create_account(username, password), remember)
+        except ValueError as e:
+            return {"error": str(e)}
+
+    def login(self, username, password, remember=True):
+        try:
+            return self._logged_in(store.login(username, password), remember)
+        except ValueError as e:
+            return {"error": str(e)}
+
+    def log_out(self):
+        store.log_out()
+        self._settings["remember_account"] = None
+        save_settings(self._settings)
+        return True
+
+    def change_password(self, old, new):
+        try:
+            store.change_password(store.account["id"], old, new)
+            return {"ok": True}
+        except ValueError as e:
+            return {"error": str(e)}
+
+    def account_profiles(self):
+        return self._account_info() if store.account else None
 
     # ---------- profiles ----------
 
@@ -95,6 +141,8 @@ class Api:
         return self._enter(prof) if prof else {"error": "wrong PIN 🙅"}
 
     def create_profile(self, name, pin=""):
+        if store.account is None:
+            return {"error": "log in first"}
         try:
             return self._enter(store.create_profile(name, pin))
         except ValueError as e:

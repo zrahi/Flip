@@ -483,6 +483,7 @@ $('#settings-btn').addEventListener('click', async () => {
   $('#set-voice').value = s.voice;
   $('#set-roblox').checked = !!s.roblox_studio;
   $('#set-note').textContent = '';
+  $('#pw-note').textContent = '';
   openPanel('settings');
 });
 $('#set-save').addEventListener('click', async () => {
@@ -550,6 +551,74 @@ async function pollRoblox() {
   if (state === 'starting') setTimeout(pollRoblox, 2000);
 }
 
+// ---------- log in / create account ----------
+
+let authMode = 'login';
+
+function showAuth(mode = 'login') {
+  authMode = mode;
+  body.classList.add('auth');
+  body.classList.remove('profiles');
+  $('#tab-login').classList.toggle('on', mode === 'login');
+  $('#tab-signup').classList.toggle('on', mode === 'signup');
+  $('#auth-pass2').hidden = mode === 'login';
+  $('#auth-go').textContent = mode === 'login' ? 'log in' : 'create account';
+  $('#auth-error').textContent = '';
+  $('#auth-note').textContent = mode === 'signup'
+    ? 'no email needed. your password gets scrambled before it\'s saved, and there\'s no reset, so don\'t forget it 🔐'
+    : '';
+  $('#auth-pass').value = '';
+  $('#auth-pass2').value = '';
+  $('#auth-user').focus();
+}
+
+async function submitAuth() {
+  const user = $('#auth-user').value.trim(), pass = $('#auth-pass').value, remember = $('#auth-remember').checked;
+  if (!user || !pass) { $('#auth-error').textContent = 'fill in your username and password'; return; }
+  if (authMode === 'signup' && pass !== $('#auth-pass2').value) { $('#auth-error').textContent = 'passwords don\'t match'; return; }
+  $('#auth-go').disabled = true;
+  const r = authMode === 'login' ? await api.login(user, pass, remember) : await api.create_account(user, pass, remember);
+  $('#auth-go').disabled = false;
+  if (r.error) { $('#auth-error').textContent = r.error; $('#auth-pass').value = ''; return; }
+  body.classList.remove('auth');
+  openAccount(r.account);
+}
+
+function openAccount(acct) {
+  $('#acct-name').textContent = `@${acct.username}`;
+  const only = acct.profiles.length === 1 && !acct.profiles[0].has_pin ? acct.profiles[0] : null;
+  if (only) api.enter_profile(only.id, '').then(enterWith);
+  else showProfiles(acct.profiles);
+}
+
+async function logOut() {
+  if (busy) return;
+  closeAll();
+  if (voiceOn) endVoice();
+  await api.log_out();
+  chatEl.innerHTML = '';
+  showAuth('login');
+}
+
+$('#tab-login').addEventListener('click', () => showAuth('login'));
+$('#tab-signup').addEventListener('click', () => showAuth('signup'));
+$('#auth-go').addEventListener('click', submitAuth);
+for (const id of ['#auth-user', '#auth-pass', '#auth-pass2']) {
+  $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAuth(); });
+}
+$('#pw-eye').addEventListener('click', () => {
+  const show = $('#auth-pass').type === 'password';
+  $('#auth-pass').type = $('#auth-pass2').type = show ? 'text' : 'password';
+  $('#pw-eye').textContent = show ? 'hide' : 'show';
+});
+$('#log-out').addEventListener('click', logOut);
+$('#drawer-logout').addEventListener('click', logOut);
+$('#pw-save').addEventListener('click', async () => {
+  const r = await api.change_password($('#pw-old').value, $('#pw-new').value);
+  $('#pw-note').textContent = r.error || 'password changed ✓';
+  if (!r.error) { $('#pw-old').value = ''; $('#pw-new').value = ''; }
+});
+
 // ---------- profiles ----------
 
 let profiles = [];
@@ -557,6 +626,7 @@ let pinFor = null;
 
 function showProfiles(list) {
   profiles = list;
+  body.classList.remove('auth');
   body.classList.add('profiles');
   body.classList.remove('picking', 'manage');
   $('#prof-form').hidden = true;
@@ -657,8 +727,9 @@ $('#prof-manage').addEventListener('click', () => {
 $('#switch-btn').addEventListener('click', async () => {
   if (busy) return;
   closeAll();
-  const info = await api.hello();
-  showProfiles(info.profiles);
+  const acct = await api.account_profiles();
+  if (acct) showProfiles(acct.profiles);
+  else showAuth('login');
 });
 
 // ---------- startup ----------
@@ -672,9 +743,8 @@ window.addEventListener('pywebviewready', async () => {
   pet.svg.setAttribute('aria-label', petName);
   input.placeholder = `talk to ${petName}…`;
   onPetChanged(info.pet);
-  const only = info.profiles.length === 1 && !info.profiles[0].has_pin ? info.profiles[0] : null;
-  if (only) enterWith(await api.enter_profile(only.id, ''));
-  else showProfiles(info.profiles);
+  if (info.account) openAccount(info.account);
+  else showAuth(info.has_accounts ? 'login' : 'signup');
   watchBrain();
   pollRoblox();
 });
