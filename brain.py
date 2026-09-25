@@ -519,8 +519,11 @@ class Brain:
             log.info("Repeating (%s), redoing: %s", why, short(tried, 100))
             note = repeats.REDO_NOTE + (" (Voice call: 1-2 short spoken sentences.)" if voice else "")
             compare = compare + [tried]
+            # a new question gets its redo answered in full (cutting it off at "You main Jett…" left nothing);
+            # the same message again gets the redo watched just as closely
             got, stopped, watch = attempt(history + [{"role": "assistant", "content": tried},
-                                                     {"role": "user", "content": note}], compare, redo=True)
+                                                     {"role": "user", "content": note}],
+                                          compare if user_repeated else [], redo=True)
             reply = watch.text()
             still = "" if stopped else watch.why or (not voice and repeats.too_similar(reply, compare))
             if still:
@@ -529,6 +532,8 @@ class Brain:
                     if not reply:  # stopped before he said anything
                         reply = repeats.fallback(user_repeated, compare)
                         emit(reply)
+                elif reply and not user_repeated:
+                    pass  # a new question: its answer ("you main Jett") beats cutting lines or a canned line
                 else:
                     kept = repeats.strip(reply, compare)
                     reply = kept if len(repeats.words(kept)) >= 4 else repeats.fallback(user_repeated, compare)

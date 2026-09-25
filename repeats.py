@@ -33,7 +33,8 @@ END = re.compile(r"[.!?…]+[\"'”’)\]*_]*\s+|\n+")
 # A redo that opens by owning up to the note he got ("my bad", "got it, something new:") instead of just answering.
 ACK = re.compile(r"^\W*(my bad|my fault|oops|sorry|you'?re right|fair( enough| point)?|noted|understood|got it|gotcha|"
                  r"(ok(ay)?|alright|aight)\W+(here'?s |something |a )*(new|different|fresh))\b|here'?s (something|a) "
-                 r"(new|different|fresh)", re.I)
+                 r"(new|different|fresh)|(not|won'?t|never) (going to |gonna )?repeat|let'?s pivot|"
+                 r"(same|that) (thing|answer) (again|twice)", re.I)
 # The user asking to hear it again: repeating is the point then.
 AGAIN = re.compile(r"\b(again|repeat|one more time|say (that|it) (again|back)|what did you (just )?say|what was that|"
                    r"simpler|rephrase|in other words|explain (it|that|this)|recap|summar|tl;?dr|remind me)\b", re.I)
@@ -242,7 +243,7 @@ class Watch:
         self._redo = redo
         self._held = ""
         self._lead = ""       # bits with no words (an emoji line) waiting for the first real sentence
-        self._started = not self._old  # nothing to compare with: nothing to hold back
+        self._started = not self._old and not redo  # nothing to compare or drop: nothing to hold back
         self._every = every and bool(self._old)
         self._skipped = 0
         self.shown = ""

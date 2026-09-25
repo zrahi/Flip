@@ -133,3 +133,42 @@ def test_the_builds_stricter_check():
     assert repeats.too_similar("Honestly though, set up early, trade in angles and swing.", [S2a])  # reused line
     assert not repeats.too_similar("Nah you're good, reset and play your first contact slower.", [S2a])
     assert not repeats.too_similar("Viper on Lotus? Wall off A main, orb Tree.", [S1a, S2a])
+
+
+def test_redo_drops_talk_about_not_repeating():
+    shown = []
+    feed(repeats.Watch([S1a], shown.append, redo=True),
+         ["Ayy, I'm not going to repeat myself — but let's pivot. ", "Rankedmeta has ", "Clove on top right now."])
+    assert "".join(shown) == "Rankedmeta has Clove on top right now."
+
+
+def test_a_real_answer_beats_a_canned_line(monkeypatch):
+    import store
+    from brain import Brain
+
+    first = "Jett's kit: Cloudburst smokes, Updraft goes up, Tailwind dashes. Jett is all about entry and dash timing."
+    close = "You main Jett, so Cloudburst, Updraft and Tailwind are your kit. Entry with the dash."
+
+    class Backend:
+        calls = 0
+
+        def answer(self, system, history, tools, run_tool, on_text=None, stop=None, **kw):
+            Backend.calls += 1
+            text = first if Backend.calls == 1 else close
+            on_text(text)
+            return text, False
+
+    if store.account is None:
+        store.use_account(store.create_account("canned", "password1"))
+    store.use_profile(store.profiles()[0] if store.profiles() else store.create_profile("Sam"))
+    b = Brain({"name": "Flip", "roblox_studio": False}, "You are {name}.", "http://127.0.0.1:9/v1")
+    b.backend = Backend()
+    b.chat("mainchat", "i main jett, what's her kit?")
+    reply, _, _ = b.chat("mainchat", "what agent do I main? one short sentence")
+    assert reply == close  # overlaps his last reply, but it answers: no "say that another way?"
+
+
+def test_redo_with_nothing_to_compare_still_drops_the_acknowledgement():
+    shown = []
+    feed(repeats.Watch([], shown.append, redo=True), ["My bad, ", "not gonna repeat that. ", "You main Jett."])
+    assert "".join(shown) == "You main Jett."
