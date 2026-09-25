@@ -143,6 +143,28 @@ def verdict(reply, earlier):
     return ""
 
 
+def too_similar(reply, earlier):
+    """A stricter check than verdict(), for tests: why the reply is even close to an earlier one ("" if not).
+    Same opener, any reused sentence of 4+ words (reworded counts), or half its meaningful words shared."""
+    why = verdict(reply, earlier)
+    if why:
+        return why
+    new = sentences(reply)
+    if not new:
+        return ""
+    for e in earlier:
+        old = sentences(e)
+        if old and _real(new[0][0]) and new[0][0] == old[0][0]:
+            return f"same opener: {' '.join(new[0][0])}"
+        for w, _ in new:
+            if len(w) >= 4 and any(same(w, o) for o, _ in old):
+                return f"reused: {' '.join(w)}"
+        mine, theirs = content(reply), content(e)
+        if len(mine) >= 4 and len(mine & theirs) / len(mine) >= 0.5:
+            return f"{round(100 * len(mine & theirs) / len(mine))}% the same words"
+    return ""
+
+
 def asks_again(text):
     return AGAIN.search(text or "") is not None
 

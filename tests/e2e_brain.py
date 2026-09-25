@@ -42,12 +42,12 @@ reply, _, _ = brain.chat("e2e", "who's my main agent?")
 print("REPLY 2:", reply, brain.last_stats)
 
 # no parroting: different messages in a voice call get different replies, and so does the same message twice
-from repeats import verdict  # noqa: E402
+from repeats import too_similar as verdict  # noqa: E402  (stricter than his own check)
 
 said = []
 for msg in ("yo what's up bro", "could you stop saying the same thing every time", "do you see my screen?",
             "wsp coach", "wsp coach"):
-    reply, _, _ = brain.chat("e2e-repeat", msg, voice=True)
+    reply, _, _ = brain.chat("e2erepeat", msg, voice=True)  # (letters only: a "-" never saved the chat)
     print("REPLY VOICE:", reply)
     assert not verdict(reply, said), f"repeated itself: {reply!r} after {said!r}"
     said.append(reply)
@@ -66,7 +66,7 @@ ImageDraw.Draw(img).rectangle((180, 80, 460, 280), fill=(230, 20, 20))
 buf = io.BytesIO()
 img.save(buf, "JPEG")
 pic = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
-reply, _, _ = brain.chat("e2e-eyes", "What color is the big square on my screen? Answer with one word.", image=pic,
+reply, _, _ = brain.chat("e2eeyes", "What color is the big square on my screen? Answer with one word.", image=pic,
                          image_label="a test picture")
 print("REPLY EYES:", reply, brain.last_stats)
 assert "red" in reply.lower(), reply

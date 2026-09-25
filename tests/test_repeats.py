@@ -125,3 +125,11 @@ def test_small_talk_gets_no_coaching_pitch():
         assert r.kind == "chat" and "small talk" in r.note, msg
     assert router.route("yo what's the best agent for ascent?", "auto").kind == "valorant"
     assert router.route("coach me on jett", "auto").kind == "valorant"
+
+
+def test_the_builds_stricter_check():
+    assert repeats.too_similar(S1b, [S1a]) and repeats.too_similar(S2b, [S2a])
+    assert repeats.too_similar("WSP? Totally different stuff about Viper walls today.", [S1a])  # same opener
+    assert repeats.too_similar("Honestly though, set up early, trade in angles and swing.", [S2a])  # reused line
+    assert not repeats.too_similar("Nah you're good, reset and play your first contact slower.", [S2a])
+    assert not repeats.too_similar("Viper on Lotus? Wall off A main, orb Tree.", [S1a, S2a])

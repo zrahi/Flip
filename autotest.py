@@ -302,7 +302,7 @@ def run(api):
         wait_for("!document.body.classList.contains('chatting')", 10)
 
     def no_repeats():
-        from repeats import verdict
+        from repeats import too_similar as verdict  # stricter than his own check
 
         new_chat_now()
         said = []
@@ -398,7 +398,7 @@ def run(api):
         while api.playtest_status()["running"] and time.time() < deadline:
             time.sleep(1)
         call("closeAll()")
-        if any(c["id"].startswith("playtest-") for c in api.list_chats()):
+        if any(c["id"].startswith("playtest") for c in api.list_chats()):
             raise Failed("playtest chats were left behind")
         return first[:200]
     step("playtest runs", playtest_runs)

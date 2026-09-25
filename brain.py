@@ -511,7 +511,7 @@ class Brain:
         reply = watch.text()
         why = watch.why
         if check and not why and not stopped and not voice:
-            why = repeats.verdict(reply, compare)
+            why = repeats.too_similar(reply, compare)
             if why and on_reset:
                 on_reset()  # it was on screen already: clear it for the redo
         if why and not stopped and not (voice and reply):  # (in a call, what he already said stays said)
@@ -522,7 +522,7 @@ class Brain:
             got, stopped, watch = attempt(history + [{"role": "assistant", "content": tried},
                                                      {"role": "user", "content": note}], compare, redo=True)
             reply = watch.text()
-            still = "" if stopped else watch.why or (not voice and repeats.verdict(reply, compare))
+            still = "" if stopped else watch.why or (not voice and repeats.too_similar(reply, compare))
             if still:
                 log.info("The redo repeated too (%s): %s", still, short(got, 100))
                 if voice:
