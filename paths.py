@@ -24,7 +24,7 @@ DEFAULT_SETTINGS = {
     "mic": None,
     "fast_mode": False,
     "brain_size": "smart",
-    "whisper_model": "distil-small.en",
+    "whisper_model": "small.en",
     "roblox_studio": False,
     "voice_hotkey": "ctrl+alt+v",
     "roblox_command": ["cmd.exe", "/c", "cd /d %LOCALAPPDATA%\\Roblox && .\\mcp.bat"],
@@ -52,9 +52,9 @@ def load_settings():
     if settings["version"] < 4:  # v4: he talks quicker by default (the old "normal" was slow)
         old = float(settings.get("talk_speed") or 1.0)
         settings["talk_speed"] = 1.25 if old <= 1.0 else 1.4 if old <= 1.2 else 1.6
-    if settings["version"] < 5:  # v5: one faster, sharper speech model (distil-small.en) instead of three
-        if settings.get("whisper_model") in (None, "small.en", "base.en"):
-            settings["whisper_model"] = "distil-small.en"
+    if settings["version"] < 5:  # v5: click-to-talk and calls both use small.en (see voice.EARS)
+        if settings.get("whisper_model") in (None, "base.en", "distil-small.en"):
+            settings["whisper_model"] = "small.en"
     settings["version"] = 5
     save_settings(settings)
     return settings

@@ -72,14 +72,14 @@ def speakable(text):
     return text
 
 
-# Speech-to-text. distil-small.en is almost as accurate as "small" (it keeps up with fast talkers, where
-# "base" turned quick speech into mush) but decodes several times faster on a processor, and it's one
-# model for calls and click-to-talk instead of two.
-EARS = "distil-small.en"
+# Speech-to-text. "small" keeps up with fast talkers, where "base" turns quick speech into mush, so calls use
+# it on every PC that runs it in time (it used to need to be twice as fast). (distil-small.en was tried: on
+# real speech with the hint words it looped "how how how…", so it's out.)
+EARS = "small.en"
 BACKUP_EARS = "base.en"   # only on PCs too slow for EARS
 CAPTION_EARS = "tiny.en"  # live captions while they talk (fastest; the final text uses EARS)
-SPEECH_MODELS = (EARS, BACKUP_EARS, CAPTION_EARS, "small.en", "medium.en", "small", "base", "tiny")
-EARS_MAX = 1.6            # s for 3 s of audio: slower than this and calls fall back to BACKUP_EARS
+SPEECH_MODELS = (EARS, BACKUP_EARS, CAPTION_EARS, "distil-small.en", "medium.en", "small", "base", "tiny")
+EARS_MAX = 1.4            # s for 3 s of audio: slower than this and calls fall back to BACKUP_EARS
 UNSURE = -0.75            # average log-probability under which a quick transcript gets a careful second look
 
 # When they've stopped talking: answer after END_FAST of quiet if what they said sounds finished
