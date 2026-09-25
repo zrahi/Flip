@@ -411,6 +411,16 @@ body.sharing #share-btn, body.sharing #share-voice { color: #ff4d6d; }
 #drop-zone { position: absolute; inset: 0; z-index: 50; display: grid; place-items: center;
   background: rgba(21, 19, 31, .82); border: 2px dashed var(--accent); border-radius: 16px; margin: 8px; pointer-events: none; }
 #drop-zone div { font-size: 18px; font-weight: 700; color: var(--accent); }
+.msg.pet .atts { justify-content: flex-start; margin: 8px 0 0; }
+.made { width: min(100%, 420px); }
+.msg .atts .made img, .made video { max-width: 100%; max-height: 420px; border-radius: 14px; display: block; background: #0d0b14; }
+.made video { width: 100%; }
+.made-bar { display: flex; align-items: center; gap: 8px; margin-top: 5px; font-size: 12px; color: var(--muted); }
+.made-bar .p { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.made-bar button { background: var(--panel-2); color: var(--text); border: none; border-radius: 6px; padding: 3px 12px; font-size: 12px; cursor: pointer; }
+.made-bar button:hover { background: var(--accent); color: var(--accent-ink); }
+.making { color: var(--muted); font-style: italic; }
+.site-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 #lightbox { position: fixed; inset: 0; z-index: 90; background: rgba(0, 0, 0, .85); display: grid; place-items: center; cursor: zoom-out; }
 #lightbox img { max-width: 94vw; max-height: 92vh; border-radius: 10px; }
 .code-bar .save { margin-right: 6px; }

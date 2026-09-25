@@ -7,7 +7,7 @@ auto still picks the right tools.
 
 import re
 
-MODES = ("auto", "fast", "think", "math", "valorant", "code")
+MODES = ("auto", "fast", "think", "math", "valorant", "code", "image", "video")
 
 AGENTS = ["jett", "reyna", "raze", "phoenix", "yoru", "neon", "iso", "waylay", "sova", "breach", "skye", "kayo",
           "kay/o", "fade", "gekko", "tejo", "brimstone", "brim", "omen", "viper", "astra", "harbor", "clove", "sage",
@@ -122,6 +122,86 @@ def word_problem(text):
     numbers = len(re.findall(r"\d+(?:\.\d+)?|\b(?:two|three|four|five|six|seven|eight|nine|ten|twice|half)\b", text, re.I))
     asks = re.search(r"\?|\b(how (long|many|much|far|fast)|what (is|was|will|total|time|percent)|find|calculate)\b", text, re.I)
     return numbers >= 2 and len(text) > 80 and bool(asks) and len(WORD_PROBLEM.findall(text)) >= 2
+
+
+# ---------- making pictures and videos ----------
+
+MAKE = r"(?:make|makes|making|generate|create|draw|paint|sketch|design|render|produce|animate|give|show|send|imagine|film|shoot)"
+PIC = (r"(?:images?|pictures?|pics?|photos?|drawings?|art|artwork|wallpapers?|logos?|icons?|posters?|thumbnails?|"
+       r"avatars?|pfps?|profile pic(?:ture)?s?|banners?|memes?|stickers?|illustrations?|portraits?|emotes?|renders?)")
+VID = r"(?:videos?|clips?|animations?|animated|gifs?|movies?|films?|reels?|cutscenes?|trailers?)"
+PLAIN = {"image", "images", "picture", "pictures", "pic", "pics", "photo", "photos", "video", "videos", "clip", "clips"}
+SAY = {"pfp": "profile picture", "pfps": "profile pictures", "gif": "short looping clip", "gifs": "short looping clips"}
+UI_WORDS = ["imagelabel", "imagebutton", "decal", "texture id", "asset id", "surfacegui", "billboardgui", "screengui",
+            "gui", "html", "css", "img tag"]
+ASKING = re.compile(r"^(how|why|what|whats|what's|when|where|who|which|is|are|was|were|does|do|did|should|have|has)\b")
+POLITE = re.compile(r"^\W*(?:(?:hey|yo|ok|okay|pls|please|plz|flip|bro|so|and|now|also|then|quick|real quick)\b\W*)+", re.I)
+ASK = re.compile(r"^(?:(?:can|could|would|will) (?:you|u)(?: please| pls)?|(?:i|we) (?:want|need|would like|wanna)(?: you)?(?: to)?|"
+                 r"i'?d like(?: you)?(?: to)?|let'?s|go|try to|try and)\s+", re.I)
+FOLLOW = re.compile(r"^\W*(?:(?:now|ok|okay|and|but|pls|please|yo|nice|cool|lol)\W+)*(make (?:it|him|her|them|that|this)|"
+                    r"change|add|remove|put|give (?:it|him|her|them)|same (?:thing |one )?but|again|another(?: one)?|"
+                    r"one more|redo|try again|do (?:it|that) again|more|less|without|with)\b", re.I)
+AGAIN_ONLY = re.compile(r"^\W*(?:(?:now|ok|okay|and|pls|please|yo)\W+)*(again|another(?: one)?|one more|redo|try again|"
+                        r"do (?:it|that) again)\W*$", re.I)
+ANIMATE = re.compile(r"\b(animate|bring (it|this|that|him|her) to life|make (it|this|that|him|her) (move|come alive|dance|"
+                     r"talk)|(turn|make) (it|this|that) (into )?an? (video|clip|animation|gif))\b", re.I)
+PRONOUN = re.compile(r"^(?:this|that|it|these|those|my (?:pic|picture|photo|image)|this (?:pic|picture|photo|image)|"
+                     r"the (?:pic|picture|photo|image))$", re.I)
+
+
+def clean_prompt(text, kind):
+    """What to make, without the asking: "yo can you make me an anime picture of Jett dashing?" → "Jett
+    dashing, anime"."""
+    t = POLITE.sub("", text.strip())
+    t = ASK.sub("", t)
+    t = POLITE.sub("", t)
+    t = re.sub(rf"^{MAKE}\b\s*", "", t, flags=re.I)
+    t = re.sub(r"^(?:me|us|him|her|them)\b\s*", "", t, flags=re.I)
+    t = re.sub(r"^(?:an?|the|some|one|my|our|a few|\d+)\s+", "", t, flags=re.I)
+    noun = PIC if kind == "image" else VID
+    m = re.match(rf"^((?:[\w'-]+\s+){{0,3}}?)({noun})\b\s*(?:of|showing|where|with|about|for|that shows|that has|in which)?\s*(.*)$",
+                 t, re.I | re.S)
+    if m:
+        style, what, rest = m.group(1).strip(), m.group(2).lower(), m.group(3).strip(" ?!.")
+        extra = [x for x in (style, "" if what in PLAIN else SAY.get(what, what)) if x]
+        t = ", ".join([rest] + extra) if rest else " ".join(extra)
+    t = re.sub(r"[\s?!.]+$", "", t)
+    t = re.sub(r"\s*,?\s*\b(please|pls|plz|for me|real quick|rn|right now)\b\s*$", "", t, flags=re.I).strip(" ,")
+    return "" if PRONOUN.match(t) else t
+
+
+def media_request(text, mode="auto", has_picture=False, last=None):
+    """("image" | "video", prompt) when they want Flip to make a picture or a video, else None.
+    last: {"kind", "prompt"} of what his last reply made, for "make it darker" / "another one"."""
+    t = (text or "").strip()
+    low = t.lower()
+    if mode in ("image", "video"):
+        prompt = clean_prompt(t, mode) or t
+        return (mode, prompt) if prompt or (mode == "video" and has_picture) else None
+    if ANIMATE.search(low) and last and last["kind"] == "image" and not has_picture and not ASKING.match(low):
+        return "video", last["prompt"]  # bring the picture he just made to life (the app passes it along)
+    if last and FOLLOW.match(low) and not ASKING.match(low):
+        if AGAIN_ONLY.match(low):
+            return last["kind"], last["prompt"]
+        change = re.sub(r"^make (?:it|him|her|them|that|this)\s+", "", POLITE.sub("", t), flags=re.I).strip(" ?!.")
+        return last["kind"], f"{last['prompt']}, {change}"
+    if re.search(r"\bvideo ?games?\b", low) or _has(CODE_WORDS + UI_WORDS, low):
+        return None
+    if ASKING.match(low):
+        return None  # "how do I make a video?", "what's in this picture?"
+    animate = has_picture and ANIMATE.search(low)
+    video = re.search(rf"\b{MAKE}\b(?:\W+[\w'-]+){{0,5}}?\W+{VID}\b", low) or animate
+    image = re.search(rf"\b{MAKE}\b(?:\W+[\w'-]+){{0,5}}?\W+{PIC}\b", low) or re.match(
+        r"^\W*(?:(?:hey|yo|pls|please|flip|bro|ok|okay)\W+)*(?:(?:can|could|would) (?:you|u)\W+)?(?:draw|paint|sketch)\b", low)
+    kind = "video" if video else "image" if image else None
+    if not kind:
+        return None
+    prompt = clean_prompt(t, kind)
+    if animate and (not prompt or re.match(r"^(it|this|that|him|her)\b", prompt, re.I)):
+        return kind, "bring this picture to life with natural, cinematic motion"
+    if not prompt:
+        return None  # "can you make pictures?" is a question about him, not a request
+    return kind, prompt
 
 
 class Route:
