@@ -158,6 +158,41 @@ def run(api):
         return reply
     step("screen sharing: he sees the screen", sharing)
 
+    def send_picture():
+        import base64
+        import io
+
+        from PIL import Image, ImageDraw
+
+        img = Image.new("RGB", (800, 500), "white")
+        ImageDraw.Draw(img).rectangle((250, 120, 550, 380), fill=(220, 20, 20))
+        buf = io.BytesIO()
+        img.save(buf, "PNG")
+        url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+        call(f"pending.push({{kind: 'image', name: 'square.png', size: {len(buf.getvalue())}, data: {json.dumps(url)}, "
+             f"preview: {json.dumps(url)}}}); renderTray()")
+        wait_for("document.querySelectorAll('#tray .att').length === 1", 10, "the picture in the tray")
+        reply = chat("what color is the big square in my picture? one word")
+        if "red" not in reply.lower():
+            raise Failed(f"didn't see the picture right: {reply!r}")
+        if not js("document.querySelectorAll('.msg.user .atts img').length"):
+            raise Failed("the picture isn't shown in the chat")
+        return reply
+    step("send a picture: he sees it", send_picture)
+
+    def send_file():
+        import base64
+
+        code = "local door = script.Parent\nprint('secret word: pineapple')\n"
+        data = "data:text/plain;base64," + base64.b64encode(code.encode()).decode()
+        call(f"pending.push({{kind: 'file', name: 'door.lua', size: {len(code)}, data: {json.dumps(data)}}}); renderTray()")
+        wait_for("document.querySelectorAll('#tray .att').length === 1", 10, "the file in the tray")
+        reply = chat("what secret word does my script print? one word")
+        if "pineapple" not in reply.lower():
+            raise Failed(f"didn't read the file: {reply!r}")
+        return reply
+    step("send a file: he reads it", send_file)
+
     def stop_button():
         call("send('count slowly from 1 to 300, one number per line')")
         wait_for("stream && stream.text.length > 3", 300, "him to start writing")
@@ -251,6 +286,25 @@ def run(api):
             raise Failed(f"too long for a live callout ({n} words): {reply!r}")
         return f"{reply!r} ({n} words)"
     step("valorant: live callouts", live_coach)
+
+    def playtest_runs():
+        call("openSettings()")
+        wait_for("document.querySelector('#playtest-btn') !== null", 10)
+        call("document.querySelector('#playtest-btn').click()")
+        wait_for("$('#panel').dataset.show === 'playtest'", 10, "the playtest panel")
+        call("document.querySelector('#pt-go').click()")
+        wait_for("document.querySelectorAll('#pt-list .pt').length >= 1", 600, "the first playtest result")
+        first = js("document.querySelector('#pt-list .pt').textContent")
+        api.playtest_stop()
+        wait_for("!api || true", 1)
+        deadline = time.time() + 300
+        while api.playtest_status()["running"] and time.time() < deadline:
+            time.sleep(1)
+        call("closeAll()")
+        if any(c["id"].startswith("playtest-") for c in api.list_chats()):
+            raise Failed("playtest chats were left behind")
+        return first[:200]
+    step("playtest runs", playtest_runs)
 
     def pet():
         api.show_pet()

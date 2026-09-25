@@ -9,3 +9,4 @@ pystray>=0.19
 pillow
 kokoro-onnx>=0.4
 sympy>=1.12
+pypdf>=4

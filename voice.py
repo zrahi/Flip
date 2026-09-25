@@ -77,6 +77,7 @@ CAPTION_EARS = "tiny.en"  # live captions while they talk (fastest; the final te
 
 # When they've stopped talking: answer after END_FAST of quiet if what they said sounds finished
 # ("what should I buy?"), otherwise wait up to END_SLOW ("so what about the…").
+ACCURATE_EARS_MAX = 0.7  # s for 3 s of audio: fast enough to use the accurate model in calls
 END_FAST = 0.25
 END_SLOW = 0.8
 FINAL_AFTER = 3        # frames of quiet (~0.1 s) before the final speech-to-text starts
@@ -211,6 +212,7 @@ class Voice:
         self._say_lock = threading.Lock()
         self.level = 0.0
         self.names = []
+        self.call_ears = CALL_EARS  # may become the bigger model after preload() times it
 
     # ---------- ears ----------
 
@@ -218,19 +220,30 @@ class Voice:
         """Loads (and runs once) the ears and the voice, so the first real call doesn't pay for it."""
         rng = np.random.default_rng(0)
         hiss = rng.normal(0, 0.01, RATE).astype(np.float32)
+        took = {}
         for which in ("tiny", True, False):
             try:
                 model = self._get_whisper(which)
-                list(model.transcribe(hiss, language="en", beam_size=1, without_timestamps=True, chunk_length=4,
-                                      temperature=0.0)[0])
+                for _ in range(2):  # the second run is the real speed
+                    t = time.time()
+                    list(model.transcribe(np.tile(hiss, 3), language="en", beam_size=1, without_timestamps=True,
+                                          chunk_length=5, temperature=0.0)[0])
+                    took[which] = time.time() - t
             except Exception:
                 log.exception("Couldn't load speech-to-text")
+        # Calls use the bigger, more accurate model (much better with fast talkers) when this PC runs it
+        # quickly enough; otherwise the faster base model.
+        big = self._s.get("whisper_model") or "small.en"
+        if took.get(False, 9) <= ACCURATE_EARS_MAX:
+            self.call_ears = big
+        log.info("Speech-to-text speed: %s -> calls use %s",
+                 {k if isinstance(k, str) else ("call" if k else "big"): round(v, 2) for k, v in took.items()}, self.call_ears)
         self.preload_mouth()
 
     def _get_whisper(self, quick=False):
         """quick (voice calls): the base model, about 3x faster than small with the same results on
         normal talking. "tiny": live captions. Click-to-talk keeps the more careful small one."""
-        size = CAPTION_EARS if quick == "tiny" else CALL_EARS if quick else (self._s.get("whisper_model") or "small.en")
+        size = CAPTION_EARS if quick == "tiny" else self.call_ears if quick else (self._s.get("whisper_model") or "small.en")
         with self._whisper_lock:
             if size not in self._whisper:
                 import shutil
@@ -306,7 +319,7 @@ class Voice:
         if not tiny:
             self.last_stt = {"audio": round(len(audio) / RATE, 1), "secs": round(secs, 2), "window": window}
         log.info("Heard %.1fs of audio in %.2fs (%s, window %ss)", len(audio) / RATE, secs,
-                 "tiny" if tiny else CALL_EARS if quick else "full", window)
+                 "tiny" if tiny else self.call_ears if quick else "full", window)
         return "" if text.lower().strip(" .!?") in NOISE_WORDS else text
 
     # Click-to-talk: record until stop_listening() is called.

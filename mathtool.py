@@ -18,7 +18,8 @@ TOOL = {
         "trig, logs, statistics, probability and calculus instead of working numbers out in your head. "
         "op: evaluate (default) | solve | simplify | factor | expand | derivative | integral | limit. "
         "Write math like code: 2*x^2 + 3*x - 5, sqrt(2), 15% of 80 as 0.15*80, sin(30 deg), log(8, 2), "
-        "binomial(10, 3), mean(1, 2, 3). Equations use =, several are separated by ; (e.g. 'x+y=5; x-y=1')."
+        "binomial(10, 3), mean(1, 2, 3). Several calculations at once: separate with ; (e.g. '1/4-1/8; (1/6-1/8)*3'). "
+        "Equations use =, several are separated by ; (e.g. 'x+y=5; x-y=1')."
     ),
     "schema": {
         "type": "object",
@@ -247,6 +248,9 @@ def _run(args):
             return "no solution"
         return " or ".join(_fmt(sp, s) for s in sol)
 
+    if op == "evaluate" and ";" in raw:  # several calculations at once
+        parts = [p.strip() for p in raw.split(";") if p.strip()][:12]
+        return "\n".join(f"{p} = {_run(dict(args, expression=p))}" for p in parts)
     expr = parser.parse(_prepare(raw))
     if isinstance(expr, list):
         return _fmt(sp, expr)

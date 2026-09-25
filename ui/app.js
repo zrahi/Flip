@@ -108,14 +108,22 @@ function inline(t) {
     .replace(/\u0000(\d+)\u0000/g, (_, i) => math[+i]);
 }
 
+const EXT = { python: 'py', py: 'py', javascript: 'js', js: 'js', typescript: 'ts', ts: 'ts', lua: 'lua', luau: 'lua',
+  csharp: 'cs', cs: 'cs', cpp: 'cpp', c: 'c', java: 'java', html: 'html', css: 'css', json: 'json', powershell: 'ps1',
+  bash: 'sh', sh: 'sh', sql: 'sql', markdown: 'md', md: 'md', csv: 'csv', xml: 'xml', yaml: 'yaml', text: 'txt', txt: 'txt' };
+
 function format(text) {
-  const parts = text.split(/```([\w+-]*)[^\S\n]*\n?([\s\S]*?)(?:```|$)/g);
+  // ```lang Name.ext  → a code block with the file's name (and a Save button)
+  const parts = text.split(/```([\w+#-]*)(?:[^\S\n]+([\w.\- ()]+\.[A-Za-z0-9]{1,8}))?[^\S\n]*\n?([\s\S]*?)(?:```|$)/g);
   let html = '';
-  for (let i = 0; i < parts.length; i += 3) {
+  for (let i = 0; i < parts.length; i += 4) {
     html += inline(parts[i].replace(/^\n+|\n+$/g, ''));
-    if (i + 2 < parts.length) {
-      html += `<div class="code"><div class="code-bar"><span>${esc(parts[i + 1] || 'code')}</span>` +
-        `<button class="copy">copy</button></div><pre><code>${esc(parts[i + 2].replace(/\n$/, ''))}</code></pre></div>`;
+    if (i + 3 < parts.length) {
+      const lang = parts[i + 1] || '', file = parts[i + 2] || '';
+      const name = file || `flip.${EXT[lang.toLowerCase()] || 'txt'}`;
+      html += `<div class="code"><div class="code-bar"><span>${esc(file || lang || 'code')}</span><span>` +
+        `<button class="save" data-name="${esc(name)}">save</button><button class="copy">copy</button></span></div>` +
+        `<pre><code>${esc(parts[i + 3].replace(/\n$/, ''))}</code></pre></div>`;
     }
   }
   return html;
@@ -124,9 +132,10 @@ function format(text) {
 const nearBottom = () => chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < 80;
 const toBottom = () => { chatEl.scrollTop = chatEl.scrollHeight; };
 
-function addMsg(role, text, extra = '') {
+function addMsg(role, text, extra = '', atts = null, chatForMedia = null) {
   const row = document.createElement('div');
   row.className = `msg ${role} ${extra}`;
+  if (atts && atts.length) row.appendChild(attRow(atts, chatForMedia));
   if (role === 'pet') {
     const who = document.createElement('div');
     who.className = 'who';
@@ -164,13 +173,23 @@ function showChat(chat) {
   chatId = chat.id;
   setTitle(chat.messages.length ? chat.title : 'New chat');
   thread.innerHTML = '';
-  for (const m of chat.messages) addMsg(m.role === 'user' ? 'user' : 'pet', m.content);
+  for (const m of chat.messages) addMsg(m.role === 'user' ? 'user' : 'pet', m.shown != null ? m.shown : m.content, '', m.attachments, chat.id);
   setChatting(chat.messages.length > 0);
   $('#empty-title').textContent = me ? `what's good, ${me.name}? 👋` : 'what\'s good? 👋';
   renderChatList();
 }
 
 chatEl.addEventListener('click', async (e) => {
+  const pic = e.target.closest('.atts img');
+  if (pic) { showBig(pic.dataset.full || pic.src); return; }
+  const save = e.target.closest('.save');
+  if (save) {
+    const code = save.closest('.code').querySelector('code').textContent;
+    const r = await api.save_file(save.dataset.name, code);
+    save.textContent = r && r.saved ? 'saved ✓' : r && r.error ? 'failed' : 'save';
+    if (r && r.saved) setTimeout(() => { save.textContent = 'save'; }, 2000);
+    return;
+  }
   const btn = e.target.closest('.copy');
   if (!btn) return;
   const code = btn.closest('.code').querySelector('code').textContent;
@@ -220,7 +239,7 @@ window.onTool = (name) => {
 };
 
 // Called from Python when he's decided what kind of message this is.
-const ROUTE_SAID = { math: 'calculating…', live: 'reading the round…', valorant: 'thinking like a coach…',
+const ROUTE_SAID = { look: 'looking at what you sent…', math: 'calculating…', live: 'reading the round…', valorant: 'thinking like a coach…',
   code: 'looking at the code…', roblox: 'looking at the code…' };
 window.onRoute = (kind, think) => {
   if (!stream) return;
@@ -238,11 +257,13 @@ function setBusy(b) {
 
 async function send(text) {
   text = (text || '').trim();
-  if (!text || busy || !api) return;
+  const files = pending.splice(0);
+  if ((!text && !files.length) || busy || !api) { pending.unshift(...files); return; }
+  renderTray();
   pet.wake();
   stopSpeaking();
   setChatting(true);
-  addMsg('user', text);
+  addMsg('user', text, '', files.map((f) => ({ kind: f.kind, name: f.name, size: f.size, url: f.preview })));
   if (voiceOn) { $('#cap-you').textContent = `“${text}”`; $('#cap-pet').textContent = ''; }
   input.value = '';
   autosize();
@@ -257,7 +278,8 @@ async function send(text) {
   voiceStats = { start: Date.now() };
 
   let res;
-  try { res = await api.send(chatId, text, voiceOn); } catch (e) { res = { error: `something broke 😭 (${e})` }; }
+  const payload = files.map((f) => ({ kind: f.kind, name: f.name, data: f.data }));
+  try { res = await api.send(chatId, text, voiceOn, payload); } catch (e) { res = { error: `something broke 😭 (${e})` }; }
   const written = stream.text;
   stream = null;
   voiceStats.replyDone = Date.now();
@@ -273,6 +295,7 @@ async function send(text) {
   }
 
   b.innerHTML = format(res.reply);
+  if (res.problems && res.problems.length) addNote(`📎 ${res.problems.join(' · ')}`);
   if (res.stopped) row.insertAdjacentHTML('beforeend', '<div class="stopped">stopped</div>');
   else if (res.secs != null) row.insertAdjacentHTML('beforeend', `<div class="meta">${res.secs}s${mode !== 'auto' ? ` · ${MODE_LABEL[mode]}` : ''}</div>`);
   if (chatTitle === 'New chat' || !allChats.some((c) => c.id === chatId)) {
@@ -823,6 +846,125 @@ function endVoice() {
 // The voice button on the desktop pet.
 window.toggleVoiceFromPet = () => { if (voiceOn) endVoice(); else startVoice(); };
 
+// ---------- pictures and files ----------
+
+const MAX_ATT = 6, MAX_FILE = 10 * 1024 * 1024, MAX_PIC = 15 * 1024 * 1024;
+const PIC_TYPES = /^image\/(png|jpe?g|webp|gif|bmp)$/;
+let pending = [];  // what goes with the next message
+
+const kb = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+const extOf = (name) => (name.includes('.') ? name.split('.').pop().slice(0, 4) : 'file');
+
+function readAs(file, how) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    if (how === 'url') r.readAsDataURL(file); else r.readAsArrayBuffer(file);
+  });
+}
+
+// Pictures are shrunk here (max 1600 px) so sending them is quick; Flip shrinks them again for the brain.
+async function shrinkPic(file) {
+  const url = await readAs(file, 'url');
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+    if (k >= 1 && file.size < 2 * 1024 * 1024) return url;
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * k);
+    c.height = Math.round(img.naturalHeight * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.9);
+  } catch (e) { return url; }
+}
+
+async function addFiles(list) {
+  for (const file of list) {
+    if (pending.length >= MAX_ATT) { flash('excited', 1600, `max ${MAX_ATT} things per message`); break; }
+    const pic = PIC_TYPES.test(file.type);
+    if (file.size > (pic ? MAX_PIC : MAX_FILE)) { flash('excited', 1800, `${file.name} is too big 😵`); continue; }
+    try {
+      const data = pic ? await shrinkPic(file) : await readAs(file, 'url');
+      pending.push({ kind: pic ? 'image' : 'file', name: file.name || (pic ? 'pasted.png' : 'file'), size: file.size, data,
+        preview: pic ? data : null });
+    } catch (e) { flash('excited', 1600, `couldn't open ${file.name}`); }
+  }
+  renderTray();
+}
+
+function attChip(a, removable) {
+  const el = document.createElement('div');
+  el.className = `att ${a.kind}`;
+  if (a.kind === 'image') el.innerHTML = `<img alt="">`;
+  else el.innerHTML = `<div class="fi"></div><div><div class="nm"></div><div class="sz"></div></div>`;
+  if (a.kind === 'image') { el.querySelector('img').src = a.url || a.preview || ''; el.title = a.name; }
+  else {
+    el.querySelector('.fi').textContent = extOf(a.name);
+    el.querySelector('.nm').textContent = a.name;
+    el.querySelector('.sz').textContent = a.size ? kb(a.size) : '';
+  }
+  if (removable) {
+    const x = document.createElement('button');
+    x.className = 'x'; x.textContent = '✕'; x.title = 'Remove';
+    x.addEventListener('click', () => { pending = pending.filter((p) => p !== a); renderTray(); });
+    el.appendChild(x);
+  }
+  return el;
+}
+
+function renderTray() {
+  const tray = $('#tray');
+  tray.innerHTML = '';
+  for (const a of pending) tray.appendChild(attChip(a, true));
+  tray.hidden = !pending.length;
+  footer.classList.toggle('has-text', input.value.trim().length > 0 || pending.length > 0);
+}
+
+// Pictures/files shown on a message (old chats load their pictures from Flip's folder).
+function attRow(atts, chatForMedia) {
+  const row = document.createElement('div');
+  row.className = 'atts';
+  for (const a of atts) {
+    if (a.kind === 'image') {
+      const img = document.createElement('img');
+      img.alt = a.name;
+      if (a.url) { img.src = a.url; img.dataset.full = a.url; }
+      else if (chatForMedia && api) api.media(chatForMedia, a.id).then((u) => { if (u) { img.src = u; img.dataset.full = u; } });
+      row.appendChild(img);
+    } else row.appendChild(attChip(a, false));
+  }
+  return row;
+}
+
+function showBig(src) {
+  const box = document.createElement('div');
+  box.id = 'lightbox';
+  box.innerHTML = '<img alt="">';
+  box.querySelector('img').src = src;
+  box.addEventListener('click', () => box.remove());
+  document.body.appendChild(box);
+}
+
+$('#attach-btn').addEventListener('click', () => $('#file-input').click());
+$('#file-input').addEventListener('change', (e) => { addFiles([...e.target.files]); e.target.value = ''; });
+input.addEventListener('paste', (e) => {
+  const files = [...(e.clipboardData?.files || [])];
+  if (files.length) { e.preventDefault(); addFiles(files); }
+});
+let dragDepth = 0;
+const isFileDrag = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+window.addEventListener('dragenter', (e) => { if (!isFileDrag(e)) return; dragDepth++; $('#drop-zone').hidden = voiceOn || !me; });
+window.addEventListener('dragleave', (e) => { if (!isFileDrag(e)) return; if (--dragDepth <= 0) { dragDepth = 0; $('#drop-zone').hidden = true; } });
+window.addEventListener('dragover', (e) => { if (isFileDrag(e)) e.preventDefault(); });
+window.addEventListener('drop', (e) => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault();
+  dragDepth = 0;
+  $('#drop-zone').hidden = true;
+  if (me && !voiceOn) addFiles([...e.dataTransfer.files]);
+});
+
 // ---------- composer ----------
 
 function autosize() {
@@ -830,7 +972,7 @@ function autosize() {
   const h = Math.min(input.scrollHeight, 180);
   input.style.height = `${h}px`;
   input.style.overflowY = input.scrollHeight > 180 ? 'auto' : 'hidden';
-  footer.classList.toggle('has-text', input.value.trim().length > 0);
+  footer.classList.toggle('has-text', input.value.trim().length > 0 || (typeof pending !== 'undefined' && pending.length > 0));
 }
 
 input.addEventListener('input', () => { autosize(); pet.wake(); });
@@ -1008,7 +1150,7 @@ document.addEventListener('click', (e) => {
 function openPanel(which) {
   body.classList.remove('sb-open');
   $('#panel').dataset.show = which;
-  $('#panel-title').textContent = { memory: '🧠 What I remember', settings: '⚙️ Settings', update: '⬆ New update',
+  $('#panel-title').textContent = { memory: '🧠 What I remember', settings: '⚙️ Settings', update: '⬆ New update', playtest: '🧪 Playtest',
     share: '👀 Share your screen' }[which];
   body.classList.add('panel-open');
 }
@@ -1090,6 +1232,39 @@ $('#voice-test').addEventListener('click', async () => {
   stopSpeaking();
   speaker.say(pick(['yo, it\'s me. how do I sound?', 'this is my voice, lowkey fire right?', 'testing, testing. I\'m ready to clutch.']));
 });
+
+// ---------- playtest ----------
+
+let ptTimer = 0;
+$('#playtest-btn').addEventListener('click', () => { openPanel('playtest'); refreshPlaytest(); });
+$('#pt-go').addEventListener('click', async () => {
+  const r = await api.playtest_start();
+  if (r && r.error) { $('#pt-summary').textContent = r.error; return; }
+  refreshPlaytest();
+});
+$('#pt-stop').addEventListener('click', () => api.playtest_stop());
+
+async function refreshPlaytest() {
+  clearTimeout(ptTimer);
+  const s = await api.playtest_status();
+  const list = $('#pt-list');
+  list.innerHTML = '';
+  for (const r of s.results.slice().reverse()) {
+    const el = document.createElement('div');
+    el.className = `pt ${r.passed ? 'ok' : 'fail'}`;
+    el.innerHTML = '<span class="tag"></span><div class="q"></div><div class="a"></div>';
+    el.querySelector('.tag').textContent = `${r.suite} · ${r.passed ? 'pass' : 'FAIL'}`;
+    el.querySelector('.q').textContent = r.question;
+    el.querySelector('.a').textContent = r.answer;
+    list.appendChild(el);
+  }
+  const per = Object.entries(s.score).map(([k, v]) => `${k} ${v[0]}/${v[1]}`).join(' · ');
+  $('#pt-summary').textContent = s.running ? `running… ${s.results.length} done${per ? ` · ${per}` : ''}`
+    : s.results.length ? `done · ${per}${s.file ? ` · saved to ${s.file}` : ''}` : '';
+  $('#pt-go').hidden = s.running;
+  $('#pt-stop').hidden = !s.running;
+  if (s.running && $('#panel').dataset.show === 'playtest' && body.classList.contains('panel-open')) ptTimer = setTimeout(refreshPlaytest, 1500);
+}
 
 // ---------- storage ----------
 

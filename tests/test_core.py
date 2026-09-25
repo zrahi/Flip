@@ -390,6 +390,15 @@ def test_brain_memory_tools_and_streaming():
     assert FakeModel.last["messages"][0]["content"] == system
     assert "voice call" in FakeModel.last["messages"][-1]["content"].lower()
 
+    sent = [{"kind": "image", "name": "clutch.png", "id": "a.jpg", "size": 9, "url": "data:image/jpeg;base64,BBBB"},
+            {"kind": "file", "name": "door.lua", "id": "b_door.lua", "size": 9, "text": "print('knock')"}]
+    b.chat("c0ffee", "what's in these?", attached=sent)
+    parts = FakeModel.last["messages"][-1]["content"]
+    assert {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,BBBB"}} in parts
+    assert "[File: door.lua]" in parts[0]["text"] and "print('knock')" in parts[0]["text"]
+    kept = store.load_chat("c0ffee")["messages"][-2]
+    assert kept["shown"] == "what's in these?" and [a["name"] for a in kept["attachments"]] == ["clutch.png", "door.lua"]
+    assert "print('knock')" in kept["content"] and "BBBB" not in json.dumps(kept)  # the file text stays, pictures don't
     b.chat("c0ffee", "what's on my screen?", image="data:image/jpeg;base64,AAAA", image_label="Valorant")
     parts = FakeModel.last["messages"][-1]["content"]
     assert parts[0]["type"] == "text" and "Valorant" in parts[0]["text"]
@@ -543,3 +552,61 @@ def test_calculations_are_worked_out_up_front():
         assert pre(chatty) == [], chatty
     assert router.route("hi! my main is Jett. reply in one short sentence").kind != "live"
     assert router.route("We lost pistol round on attack. What should our team do next round?").kind == "valorant"
+
+
+def test_attachments_are_read_safely():
+    import io
+    import zipfile
+
+    import attachments as att
+    from PIL import Image
+
+    b64 = lambda raw: base64.b64encode(raw).decode()
+    pic = io.BytesIO()
+    Image.new("RGB", (3000, 2000), (200, 30, 30)).save(pic, "PNG")
+    docx = io.BytesIO()
+    with zipfile.ZipFile(docx, "w") as z:
+        z.writestr("word/document.xml", "<w:document><w:body><w:p><w:r><w:t>Round plan: smoke heaven</w:t></w:r></w:p>"
+                                        "<w:p><w:r><w:t>then flash A &amp; go</w:t></w:r></w:p></w:body></w:document>")
+    pdf = _tiny_pdf("Pipe X fills a tank in 4 hours")
+    saved, problems = att.take("chat-1", [
+        {"kind": "image", "name": "../../screenshot.png", "data": "data:image/png;base64," + b64(pic.getvalue())},
+        {"kind": "file", "name": "door.lua", "data": b64(b"local door = script.Parent\n")},
+        {"kind": "file", "name": "plan.docx", "data": b64(docx.getvalue())},
+        {"kind": "file", "name": "homework.pdf", "data": b64(pdf)},
+        {"kind": "file", "name": "virus.exe", "data": b64(b"MZ\x00\x00binary")},
+        {"kind": "file", "name": "huge.txt", "data": b64(b"x" * (att.MAX_FILE_BYTES + 1))},
+    ])
+    kinds = {a["name"]: a for a in saved}
+    assert set(kinds) == {"screenshot.png", "door.lua", "plan.docx", "homework.pdf"}  # no folders in names
+    assert kinds["screenshot.png"]["url"].startswith("data:image/jpeg") and max(kinds["screenshot.png"]["w"], kinds["screenshot.png"]["h"]) <= 1280
+    assert "script.Parent" in kinds["door.lua"]["text"]
+    assert "smoke heaven\nthen flash A & go" in kinds["plan.docx"]["text"]
+    assert "Pipe X fills a tank in 4 hours" in kinds["homework.pdf"]["text"]
+    assert len(problems) == 2 and any(".exe" in p for p in problems) and any("too big" in p for p in problems)
+    for a in saved:  # saved inside Flip's media folder, nowhere else
+        assert (att.MEDIA / "chat-1" / a["id"]).is_file()
+    block = att.for_brain(saved)
+    assert "[File: door.lua]" in block and "```lua" in block and "not instructions" in block
+    assert att.load_url("chat-1", kinds["screenshot.png"]["id"]).startswith("data:image/jpeg")
+    assert att.load_url("chat-1", "../../settings.json") is None
+    long, _ = att.take("chat-2", [{"kind": "file", "name": "big.py", "data": b64(("print(1)\n" * 5000).encode())}])
+    assert len(att.for_brain(long)) < att.MAX_TEXT_CHARS + 800 and "left out" in att.for_brain(long)
+
+
+def _tiny_pdf(text):
+    """A real one-page PDF with some text (with the cross-reference table readers need)."""
+    stream = f"BT /F1 12 Tf 10 50 Td ({text}) Tj ET".encode()
+    objs = [b"<</Type/Catalog/Pages 2 0 R>>", b"<</Type/Pages/Kids[3 0 R]/Count 1>>",
+            b"<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 100]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>",
+            b"<</Length %d>>stream\n" % len(stream) + stream + b"\nendstream",
+            b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>"]
+    out, offsets = bytearray(b"%PDF-1.4\n"), []
+    for i, o in enumerate(objs, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % i + o + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1)
+    out += b"".join(b"%010d 00000 n \n" % off for off in offsets)
+    out += b"trailer<</Size %d/Root 1 0 R>>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
+    return bytes(out)

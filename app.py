@@ -24,7 +24,7 @@ def selftest(out_path):
     """Used by the build: checks that everything Flip needs made it into the .exe."""
     lines = []
     for mod in ("webview", "clr", "openai", "mcp", "mcp.client.stdio", "faster_whisper", "ctranslate2", "onnxruntime", "numpy",
-                "sounddevice", "edge_tts", "kokoro_onnx", "pystray", "PIL", "brain", "engine", "voice", "store", "storage", "updater", "screen", "autotest", "router", "knowledge", "mathtool", "usage", "sympy"):
+                "sounddevice", "edge_tts", "kokoro_onnx", "pystray", "PIL", "brain", "engine", "voice", "store", "storage", "updater", "screen", "autotest", "router", "knowledge", "mathtool", "usage", "sympy", "attachments", "pypdf", "playtest"):
         try:
             __import__(mod)
             lines.append(f"ok {mod}")
@@ -80,7 +80,9 @@ if len(sys.argv) > 2 and sys.argv[1] == "--selftest":
 import webview  # noqa: E402
 from openai import APIConnectionError, APIStatusError  # noqa: E402
 
+import attachments  # noqa: E402
 import screen  # noqa: E402
+import usage  # noqa: E402
 import storage  # noqa: E402
 from updater import Updater  # noqa: E402
 import store  # noqa: E402
@@ -230,6 +232,7 @@ class Api:
         self._voice_on = False
         self._share = None  # {"id", "title"} of the screen/window he can see
         self._turn_send = {}
+        self._playtest = {}
         self.last_latency = {}
         self._ui_queue = queue.Queue()
         threading.Thread(target=self._ui_sender, daemon=True).start()
@@ -344,13 +347,24 @@ class Api:
 
     # ---------- chatting ----------
 
-    def send(self, chat_id, text, voice=False):
+    def send(self, chat_id, text, voice=False, files=None):
         if store.current is None:
             return {"error": "pick a profile first 👤"}
         if self._engine.status["state"] != "ready":
             return {"error": "hold up, my brain is still loading 🧠 give me a sec"}
         self._stop.clear()
         self._turn_send = {"send": time.time()}
+        attached, problems = [], []
+        if files:
+            if any(f.get("kind") == "image" for f in files) and not self._engine.status.get("vision"):
+                return {"error": "my eyes aren't loaded yet 👀 (the brain is still starting, or you're using your own AI server)"}
+            self._ui("onRoute('look', false)")
+            attached, problems = attachments.take(chat_id, files)
+            if not attached and problems:
+                return {"error": " · ".join(problems)}
+            usage.record(images=sum(a["kind"] == "image" for a in attached), files=sum(a["kind"] == "file" for a in attached))
+            if not text.strip():
+                text = "What do you make of this?" if any(a["kind"] == "image" for a in attached) else "Take a look at this."
         on_text = self._ui_text  # every piece goes to the window right away (the sender merges them)
 
         image, label = None, ""
@@ -365,11 +379,12 @@ class Api:
             self._ui("onResetText()")
 
         try:
-            reply, chat, stopped = self._brain.chat(chat_id, text, voice, on_text, self._stop, image, label, on_reset)
+            reply, chat, stopped = self._brain.chat(chat_id, text, voice, on_text, self._stop, image, label, on_reset,
+                                                    attached)
             self._ui_flush()  # all of the reply is in the window before send() returns
             if self._pet is not None and (self._chat_hidden or voice) and not stopped:
                 self.pet_say(reply)
-            return {"reply": reply, "stopped": stopped, "chat_id": chat["id"], "title": chat["title"],
+            return {"reply": reply, "stopped": stopped, "chat_id": chat["id"], "title": chat["title"], "problems": problems,
                     "secs": self._brain.last_stats.get("secs")}
         except APIConnectionError:
             return {"error": "yo I can't reach my brain 💀 try closing and reopening me."}
@@ -404,6 +419,69 @@ class Api:
     def share_stop(self):
         self._share = None
         return True
+
+    # ---------- playtest ----------
+
+    def playtest_start(self):
+        if store.current is None or self._engine.status["state"] != "ready":
+            return {"error": "log in and let my brain load first"}
+        if self._playtest.get("running"):
+            return {"running": True}
+        import playtest
+
+        self._playtest = {"running": True, "results": [], "stop": threading.Event(), "file": None}
+
+        def report(suite, what, question, answer, passed):
+            self._playtest["results"].append({"suite": suite, "what": what, "question": question,
+                                              "answer": answer, "passed": passed})
+
+        def run():
+            try:
+                playtest.run_all(self._brain, report, self._playtest["stop"])
+            except Exception:
+                log.exception("Playtest failed")
+            finally:
+                path = DATA / f"playtest-{time.strftime('%Y%m%d-%H%M')}.json"
+                path.write_text(json.dumps(self._playtest["results"], indent=1), encoding="utf-8")
+                self._playtest.update(running=False, file=path.name)
+
+        threading.Thread(target=run, daemon=True).start()
+        return {"running": True}
+
+    def playtest_stop(self):
+        if self._playtest.get("stop"):
+            self._playtest["stop"].set()
+
+    def playtest_status(self):
+        score = {}
+        for r in self._playtest.get("results", []):
+            ok, n = score.get(r["suite"], (0, 0))
+            score[r["suite"]] = (ok + r["passed"], n + 1)
+        return {"running": bool(self._playtest.get("running")), "results": self._playtest.get("results", []),
+                "score": score, "file": self._playtest.get("file")}
+
+    def media(self, chat_id, fid):
+        """A picture from an old message (small), to show it again."""
+        return attachments.load_url(chat_id, fid)
+
+    def save_file(self, name, content):
+        """"Save" on a file Flip wrote: asks where, then writes it. Never runs anything."""
+        name = attachments.safe_name(name)
+        try:
+            kind = getattr(getattr(webview, "FileDialog", None), "SAVE", None) or webview.SAVE_DIALOG
+            where = self._main.create_file_dialog(kind, save_filename=name)
+        except Exception as e:
+            log.exception("Save dialog failed")
+            return {"error": f"couldn't open the save window ({e})"}
+        if not where:
+            return {"cancelled": True}
+        path = where if isinstance(where, str) else where[0]
+        try:
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                f.write(str(content))
+        except OSError as e:
+            return {"error": f"couldn't save it there ({e})"}
+        return {"saved": path}
 
     def list_chats(self):
         return store.list_chats()

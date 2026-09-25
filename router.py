@@ -64,7 +64,7 @@ def looks_like_math(text):
         return True
     if re.search(r"[a-z0-9)]\s*=\s*[-a-z0-9(]", t) and re.search(r"\d", t) and len(t) < 300:
         return True
-    return _has(MATH_WORDS, t) and bool(re.search(r"\d", t))
+    return (_has(MATH_WORDS, t) and bool(re.search(r"\d", t))) or word_problem(text)
 
 
 def is_valorant(text):
@@ -93,6 +93,18 @@ def is_live(text, recent_valorant):
     strong = bool(STRONG_LIVE.search(t) or POSITION.search(t))
     setup = _has(MAPS, t) + _has(AGENTS, t) + bool(re.search(r"\b(atk|def|attack|defense|defence|attacking|defending)\b", t))
     return (strong and words <= 12) or setup >= 2 or (recent_valorant and words <= 8 and (strong or _has(LIVE_WORDS, t)))
+
+
+WORD_PROBLEM = re.compile(r"\b(then|after|each|every|per|rate|together|total|remaining|remainder|how (long|many|much|far)|"
+                          r"hours?|minutes?|days?|km|miles?|speed|price|costs?|profit|interest|percent|times as|"
+                          r"more than|less than|twice|half)\b", re.I)
+
+
+def word_problem(text):
+    """A multi-step problem told as a story (not just "59382 × 912")."""
+    numbers = len(re.findall(r"\d+(?:\.\d+)?|\b(?:two|three|four|five|six|seven|eight|nine|ten|twice|half)\b", text, re.I))
+    asks = re.search(r"\?|\b(how (long|many|much|far|fast)|what (is|was|will|total|time|percent)|find|calculate)\b", text, re.I)
+    return numbers >= 2 and len(text) > 80 and bool(asks) and len(WORD_PROBLEM.findall(text)) >= 2
 
 
 class Route:
@@ -147,6 +159,13 @@ def route(text, mode="auto", recent="", voice=False):
                          "Use your notes; don't make up abilities or patch numbers.)")
     if math_q:
         r.math_tool = True
+        if word_problem(text) and not voice and mode != "fast":
+            r.think = True  # several steps: work it out privately first, then answer
+            r.status = "working it out…"
+            notes.append("(Word problem: think it through privately inside <think> </think> first (I won't see it): "
+                         "list what's given and what's asked, set up each step, and do EVERY calculation with the math "
+                         "tool (several expressions at once, separated by ;). Check the answer against the story. Then "
+                         "give short clear steps and the final answer in bold.)")
         if r.kind not in ("valorant", "live"):
             r.kind = "math"
         r.temperature = 0.3
@@ -174,6 +193,8 @@ def route(text, mode="auto", recent="", voice=False):
         notes.append("(Quick mode: keep it short, 1-2 sentences unless I ask for more.)")
     if voice and r.kind != "live":
         r.max_tokens = min(r.max_tokens or 120, 120)
+    if r.think:
+        r.max_tokens = None  # room to work it out
     r.note = "\n\n".join(notes)
     return r
 

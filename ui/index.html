@@ -129,10 +129,16 @@
       </div>
     </section>
 
+    <div id="drop-zone" hidden><div>📎 drop pictures or files for Flip</div></div>
     <footer>
       <div class="composer">
+        <div id="tray" hidden></div>
         <textarea id="input" rows="1" placeholder="talk to Flip…"></textarea>
         <div class="composer-row">
+          <button id="attach-btn" class="round ghost" title="Send pictures or files (or paste / drag them in)">
+            <svg viewBox="0 0 24 24"><path d="M20.5 11.5l-8.2 8.2a5.3 5.3 0 0 1-7.5-7.5l8.4-8.4a3.5 3.5 0 0 1 5 5l-8.4 8.4a1.8 1.8 0 0 1-2.5-2.5l7.8-7.8"/></svg>
+          </button>
+          <input id="file-input" type="file" multiple hidden>
           <button id="mic-btn" class="round ghost" title="Say a message (click to start, click again to send)">
             <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
           </button>
@@ -167,6 +173,12 @@
       <div class="bar" id="update-bar-wrap" hidden><div id="update-bar"></div></div>
       <div class="set-actions"><button id="update-go" class="primary">install &amp; restart</button><button id="update-later">later</button></div>
       <p id="update-note" class="hint"></p>
+    </div>
+    <div id="playtest-panel" class="panel-body">
+      <p class="hint">Runs Flip's brain through math, Valorant, chat and coding questions and checks every answer. Takes a few minutes; you can keep using the app.</p>
+      <div class="set-actions"><button id="pt-go" class="primary">start</button><button id="pt-stop" hidden>stop</button></div>
+      <p id="pt-summary" class="hint"></p>
+      <div id="pt-list"></div>
     </div>
     <div id="share-panel" class="panel-body">
       <p class="hint">Pick what I can see. I only look when you talk to me, and nothing gets saved. For games, sharing the entire screen works best.</p>
@@ -214,7 +226,7 @@
       </div>
       <p id="set-note" class="hint"></p>
       <p id="brain-info" class="hint"></p>
-      <div class="set-actions"><button id="check-update">⬆ check for updates</button></div>
+      <div class="set-actions"><button id="check-update">⬆ check for updates</button><button id="playtest-btn">🧪 playtest</button></div>
       <p id="update-status" class="hint"></p>
       <div class="sep"></div>
       <label>Change account password

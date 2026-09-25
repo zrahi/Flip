@@ -7,6 +7,7 @@ import logging
 import threading
 import time
 
+import attachments
 import knowledge
 import mathtool
 import router
@@ -389,7 +390,9 @@ class Brain:
             text = text[:MAX_TOOL_OUTPUT] + "\n...(cut off)"
         return text
 
-    def chat(self, chat_id, text, voice=False, on_text=None, stop=None, image=None, image_label="", on_reset=None):
+    def chat(self, chat_id, text, voice=False, on_text=None, stop=None, image=None, image_label="", on_reset=None,
+             attached=()):
+        """attached: pictures/files that came with the message (see attachments.take)."""
         chat = store.load_chat(chat_id) or store.new_chat(chat_id)
         history = [{"role": m["role"], "content": m["content"]} for m in chat["messages"][window_start(len(chat["messages"])):]]
         recent = " ".join(str(m["content"]) for m in history[-4:])
@@ -434,11 +437,22 @@ class Brain:
             prompt += "\n\n(Reply to exactly this message. Don't reuse lines from your earlier replies, and don't open with \"Ayy\", \"Yo\" or my name.)"
         if not image and re.search(r"\b(see|look at|seeing)\b.*\bscreen\b", text, re.I):
             prompt += "\n\n(I'm not sharing my screen right now, so you can't see it. Tell me to hit the share screen button.)"
+        pictures = [a for a in attached if a["kind"] == "image"]
+        files_text = attachments.for_brain(attached)
+        if files_text:
+            prompt = f"{prompt}\n\n{files_text}"
+        if pictures:
+            names = ", ".join(a["name"] for a in pictures)
+            prompt += (f"\n\n(I attached {len(pictures)} picture{'s' if len(pictures) > 1 else ''}: {names}. Look at "
+                       f"{'them' if len(pictures) > 1 else 'it'} closely and answer about what's actually visible; if "
+                       f"something is unreadable or cut off, say which part instead of guessing.)")
         if image:
             # a picture of what they're sharing right now; only the newest one is sent, to keep it quick
             prompt += f"\n\n(I'm sharing my screen with you: {image_label or 'my screen'}. The picture is what's on it right now.)"
-            history.append({"role": "user", "content": [{"type": "text", "text": prompt},
-                                                        {"type": "image_url", "image_url": {"url": image}}]})
+        seen = [a["url"] for a in pictures] + ([image] if image else [])
+        if seen:
+            history.append({"role": "user", "content": [{"type": "text", "text": prompt}] +
+                            [{"type": "image_url", "image_url": {"url": u}} for u in seen]})
         else:
             history.append({"role": "user", "content": prompt})
         limit = way.max_tokens
@@ -496,8 +510,21 @@ class Brain:
                 content = [dict(content[0], text=content[0]["text"] + nudge)] + content[1:]
             else:
                 content += nudge
-            reply, stopped = self.backend.answer(system, history[:-1] + [{"role": "user", "content": content}], tools,
-                                                 self._run_tool, stream_text, stop, max_tokens=limit, temperature=1.0)
+            # He copies the pattern of his own earlier replies, so the look-alikes leave the context for the redo
+            attempt = "".join(held) or reply or ""
+            cleaned = [m if m["role"] != "assistant" or not _starts_like(attempt, [m["content"]])
+                       else {"role": "assistant", "content": "(an earlier reply, left out)"} for m in history[:-1]]
+            again = [e for e in earlier if not _starts_like(attempt, [e])]
+            held[:], gate["open"], abort2 = [], not again, threading.Event()
+            earlier[:] = again
+            abort.clear()
+            reply, stopped = self.backend.answer(system, cleaned + [{"role": "user", "content": content}], tools,
+                                                 self._run_tool, stream_text, _Either(stop, abort), max_tokens=limit,
+                                                 temperature=1.0)
+            if abort.is_set() and not (stop is not None and stop.is_set()):
+                stopped = False  # copied yet another old reply: keep what came, don't loop
+            if not gate["open"]:
+                release()
         elif not gate["open"] and not stopped:
             release()  # a short reply that never reached the check
         # (not in voice calls: he's already saying it out loud, and a redo costs a whole reply of time)
@@ -529,7 +556,14 @@ class Brain:
             reply = "(stopped)" if stopped else "💀 my brain blanked, say that again?"
         if not chat["messages"]:
             chat["title"] = store.title_from(text)
-        chat["messages"] += [{"role": "user", "content": text}, {"role": "assistant", "content": reply}]
+        said = {"role": "user", "content": text}
+        if attached:
+            # later messages ("now fix line 20") still need the files; pictures stay as a mention
+            said["content"] = "\n\n".join(x for x in (text, files_text, "".join(
+                f"[picture: {a['name']}]" for a in pictures)) if x)
+            said["shown"] = text
+            said["attachments"] = attachments.meta(attached)
+        chat["messages"] += [said, {"role": "assistant", "content": reply}]
         chat["updated"] = time.time()
         store.save_chat(chat)
         return reply, chat, stopped

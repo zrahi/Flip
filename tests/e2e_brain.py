@@ -66,13 +66,12 @@ assert "red" in reply.lower(), reply
 print("hardware:", engine.hardware())
 
 # quality: math (with the calculator) and Valorant coaching
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import evals  # noqa: E402
+import playtest as evals  # noqa: E402
 
 math_ok, calc_used, math_n = evals.run_math(brain)
 val_ok, val_n = evals.run_valorant(brain)
 print(f"SCORE math {math_ok}/{math_n} (calculator used when needed {calc_used}/{math_n}), valorant {val_ok}/{val_n}")
 engine.stop()
-assert math_ok >= 9, f"math eval too low: {math_ok}/{math_n}"
+assert math_ok >= 12, f"math eval too low: {math_ok}/{math_n}"
 assert val_ok >= 9, f"valorant eval too low: {val_ok}/{val_n}"
 print("E2E OK")
