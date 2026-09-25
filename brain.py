@@ -19,7 +19,7 @@ import web
 log = logging.getLogger("flip")
 
 MAX_HISTORY = 30       # messages from the current chat the AI sees
-MAX_TOOL_STEPS = 15    # tool uses per message before he stops
+MAX_TOOL_STEPS = 8     # tool uses per message; the last step has to answer
 MAX_TOOL_OUTPUT = 4000 # characters of tool output the AI gets to see
 
 MEMORY_TOOLS = [
@@ -146,6 +146,7 @@ class LocalBackend:
 
         self.client = OpenAI(base_url=url, api_key=api_key or "local", timeout=600)
         self.model = ""
+        self.context = 8192  # tokens the brain can hold (engine.CONTEXT)
 
     def _pick_model(self):
         if not self.model:
@@ -192,7 +193,14 @@ class LocalBackend:
         messages = [{"role": "system", "content": system}] + history
         spec = self._spec(tools)
         shown = ""
-        for _ in range(MAX_TOOL_STEPS):
+        for step in range(MAX_TOOL_STEPS):
+            # No more tools on the last step, or once the chat plus tool results nearly fill what the brain can
+            # hold: he has to answer now. (A math problem called the calculator until the request no longer
+            # fit, and the fallback then looped for half an hour on a processor.)
+            used = sum(estimate_tokens(m.get("content") or "") + len(json.dumps(m.get("tool_calls") or "")) // 3
+                       for m in messages)
+            if step == MAX_TOOL_STEPS - 1 or used + min(max_tokens or 800, REPLY_ROOM) > self.context * 0.85:
+                spec = []
             kwargs = self._kwargs(messages, spec, max_tokens, temperature, redo)
             kwargs["stream"] = True
             stream = self.client.chat.completions.create(**kwargs)
@@ -238,10 +246,7 @@ class LocalBackend:
                     args = {}
                 messages.append({"role": "tool", "tool_call_id": c["id"] or f"call_{i}",
                                  "content": run_tool(c["name"], args)})
-        tail = "\n\nbro I did like 15 steps and got lost 😭 tell me to keep going"
-        if on_text:
-            on_text(tail)
-        return clean_reply(shown) + tail, False
+        return clean_reply(shown), False  # (not reached: the last step has no tools, so it answers)
 
 
 def window_start(n):
@@ -542,6 +547,8 @@ class Brain:
                     if on_reset:
                         on_reset()
                     emit(reply)
+        if not voice and reply:
+            reply = repeats.drop_meta(reply)  # the window shows the final reply, so it can still go here
         done = time.time()
         self.last_times.update(first_token=first[0] or done, done=done)
         self.last_stats = {"secs": round(done - started, 1),

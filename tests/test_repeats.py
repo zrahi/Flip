@@ -172,3 +172,42 @@ def test_redo_with_nothing_to_compare_still_drops_the_acknowledgement():
     shown = []
     feed(repeats.Watch([], shown.append, redo=True), ["My bad, ", "not gonna repeat that. ", "You main Jett."])
     assert "".join(shown) == "You main Jett."
+
+
+def test_no_talk_about_notes_or_not_repeating():
+    r = ("Ayy, those notes were solid. Yoru's Fakeout sells a flank. I'm not gonna say that again, "
+         "so try Gatecrash behind them. Check the patch notes too.")
+    assert repeats.drop_meta(r) == ("Yoru's Fakeout sells a flank. Check the patch notes too.")
+    assert repeats.drop_meta("the notes") == "the notes"  # never empties a reply
+    shown = []
+    feed(repeats.Watch([S1a], shown.append, every=True), ["Nice. ", "Your notes say Jett. ", "Dash in late."])
+    assert "".join(shown) == "Nice. Dash in late."
+
+
+def test_tool_loops_end_with_an_answer():
+    import types
+
+    from brain import MAX_TOOL_STEPS, LocalBackend
+
+    b = LocalBackend.__new__(LocalBackend)
+    b.model, b.context = "x", 8192
+    asked = []
+
+    class Stream(list):
+        def close(self):
+            pass
+
+    def create(**kw):  # a brain that calls the calculator whenever it's allowed to
+        asked.append(bool(kw.get("tools")))
+        if kw.get("tools"):
+            call = types.SimpleNamespace(index=0, id="c", function=types.SimpleNamespace(name="math", arguments="{}"))
+            delta = types.SimpleNamespace(content=None, tool_calls=[call])
+        else:
+            delta = types.SimpleNamespace(content="it's 2", tool_calls=None)
+        return Stream([types.SimpleNamespace(choices=[types.SimpleNamespace(delta=delta)])])
+
+    b.client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
+    tool = {"name": "math", "description": "calc", "schema": {"type": "object", "properties": {}}}
+    reply, stopped = b.answer("sys", [{"role": "user", "content": "hi"}], [tool], lambda name, args: "x" * 3000)
+    assert reply == "it's 2" and not stopped
+    assert asked[-1] is False and len(asked) < MAX_TOOL_STEPS  # stopped offering tools before the chat overflowed

@@ -35,6 +35,9 @@ ACK = re.compile(r"^\W*(my bad|my fault|oops|sorry|you'?re right|fair( enough| p
                  r"(ok(ay)?|alright|aight)\W+(here'?s |something |a )*(new|different|fresh))\b|here'?s (something|a) "
                  r"(new|different|fresh)|(not|won'?t|never) (going to |gonna )?repeat|let'?s pivot|"
                  r"(same|that) (thing|answer) (again|twice)", re.I)
+# Talk about what the user never sees: his notes, or the note telling him not to repeat himself.
+META = re.compile(r"\b(my|your|those|these|the) notes\b|\b(not|won'?t|never) (gonna |going to )?(say|repeat) "
+                  r"(that|this|it|myself|what)|\bnot gonna repeat\b", re.I)
 # The user asking to hear it again: repeating is the point then.
 AGAIN = re.compile(r"\b(again|repeat|one more time|say (that|it) (again|back)|what did you (just )?say|what was that|"
                    r"simpler|rephrase|in other words|explain (it|that|this)|recap|summar|tl;?dr|remind me)\b", re.I)
@@ -192,23 +195,34 @@ def dedupe(history):
     return out
 
 
-def strip(reply, earlier):
-    """The reply without the sentences that were already said (code blocks stay as they are)."""
-    old = [w for e in earlier for w, _ in sentences(e)]
+def _keep(reply, keep):
+    """reply with only the sentences keep(sentence) says yes to (code blocks stay as they are)."""
     pieces = re.split(r"(```.*?(?:```|$))", reply, flags=re.S)
     kept = []
     for i, piece in enumerate(pieces):
         if i % 2:  # a code block
             kept.append(piece)
             continue
-        for sentence in re.findall(r"[^.!?…\n]*(?:[.!?…]+[\"'”’)\]*_]*\s*|\n+|$)", piece):
-            parts = [w for w, _ in sentences(sentence)]
-            n = sum(len(w) for w in parts)
-            said = sum(len(w) for w in parts if len(w) >= 3 and any(same(w, o) for o in old))
-            if n and said * 2 >= n:
-                continue
-            kept.append(sentence)
+        kept += [s for s in re.findall(r"[^.!?…\n]*(?:[.!?…]+[\"'”’)\]*_]*\s*|\n+|$)", piece) if keep(s)]
     return re.sub(r"\n{3,}", "\n\n", "".join(kept)).strip()
+
+
+def strip(reply, earlier):
+    """The reply without the sentences that were already said."""
+    old = [w for e in earlier for w, _ in sentences(e)]
+
+    def new(sentence):
+        parts = [w for w, _ in sentences(sentence)]
+        n = sum(len(w) for w in parts)
+        said = sum(len(w) for w in parts if len(w) >= 3 and any(same(w, o) for o in old))
+        return not (n and said * 2 >= n)
+    return _keep(reply, new)
+
+
+def drop_meta(reply):
+    """The reply without sentences about his hidden notes or about (not) repeating himself."""
+    kept = _keep(reply, lambda s: not META.search(s))
+    return kept if words(kept) else reply
 
 
 def fallback(user_repeated, earlier):
@@ -304,6 +318,8 @@ class Watch:
             self._lead = ""
             return
         parts = sentences(part)
+        if parts and META.search(part):
+            return  # about his notes or about not repeating: the user never sees those, so it's just noise
         if not parts:
             if self._started:
                 self._show(part)
