@@ -152,6 +152,27 @@ def patch_notes(version, names):
     return None
 
 
+def art_links(agents, maps):
+    """The official pictures of every agent and map: {"jett": {"name": "Jett", "kind": "agent", "url": …}}."""
+    art = {}
+    for kind, items, fields in (("agent", agents, ("fullPortrait", "fullPortraitV2", "displayIcon")),
+                                ("map", maps, ("splash", "listViewIcon", "displayIcon"))):
+        for x in items:
+            url = next((x.get(f) for f in fields if x.get(f)), None)
+            name = str(x.get("displayName") or "").strip()
+            if url and name and not name.lower().startswith(("the range", "district", "kasbah", "drift", "piazza",
+                                                              "glitch", "skirmish")):
+                art[_key(name)] = {"name": name, "kind": kind, "url": url}
+    return art
+
+
+def art():
+    try:
+        return json.loads(STATE.read_text()).get("art") or {}
+    except (OSError, ValueError):
+        return {}
+
+
 def refresh(force=False):
     """Updates the notes if they're a day old or the game changed version. Returns True if it rewrote them."""
     try:
@@ -162,7 +183,7 @@ def refresh(force=False):
         return False
     try:
         version = version_text(_get("version"))
-        if not force and NOTES.exists() and version and version == state.get("version"):
+        if not force and NOTES.exists() and version and version == state.get("version") and "art" in state:
             STATE.write_text(json.dumps(dict(state, checked=time.time())))
             return False
         agents = _get("agents?isPlayableCharacter=true&language=en-US")
@@ -181,7 +202,7 @@ def refresh(force=False):
         text = build(version, agents, maps, weapons, gear, patch)
         NOTES.parent.mkdir(parents=True, exist_ok=True)
         NOTES.write_text(text, encoding="utf-8")
-        STATE.write_text(json.dumps({"checked": time.time(), "version": version}))
+        STATE.write_text(json.dumps({"checked": time.time(), "version": version, "art": art_links(agents, maps)}))
         log.info("Valorant notes updated: version %s, %d agents (%d characters)", version, len(agents), len(text))
         return True
     except Exception as e:

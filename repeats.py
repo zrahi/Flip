@@ -22,6 +22,7 @@ our they them their he him his she her it its what which who whom whose when whe
 more most other some such no nor not only own same too very can will just should now would could might must shall
 may also there here yeah yes yo ok okay lol im ive id ill youre youve youd youll weve were theyre theyve dont doesnt
 didnt cant wont isnt arent wasnt werent thats whats lets gonna wanna gotta get got like really
+let know right through feel feeling go going need want tell sure well still even much ayy man bro dude
 """.split())
 
 CODE = re.compile(r"```.*?(?:```|$)", re.S)
@@ -243,6 +244,14 @@ def brief(reply, most=22):
             done[0] = True
         return True
     return re.sub(r"\s*\n\s*", " ", _keep(reply, fits)).strip() or reply
+
+
+def whole_sentences(reply):
+    """reply without an unfinished sentence at the end (if that leaves something)."""
+    if re.search(r"[.!?…)\]*_\"'”’\U0001F300-\U0001FAFF]\s*$", reply) or "```" in reply:
+        return reply
+    ends = [m.end() for m in END.finditer(reply)]
+    return reply[:ends[-1]].strip() if ends and words(reply[:ends[-1]]) else reply
 
 
 def fallback(user_repeated, earlier):

@@ -551,6 +551,8 @@ class Brain:
             reply = repeats.drop_meta(reply)  # the window shows the final reply, so it can still go here
             if way.kind == "live":
                 reply = repeats.brief(reply)
+            elif way.kind not in ("code", "roblox") and estimate_tokens(reply) >= limit * 0.8:
+                reply = repeats.whole_sentences(reply)  # it ran into its limit: no half sentence at the end
         done = time.time()
         self.last_times.update(first_token=first[0] or done, done=done)
         self.last_stats = {"secs": round(done - started, 1),

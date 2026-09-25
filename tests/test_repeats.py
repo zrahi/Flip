@@ -229,3 +229,21 @@ def test_live_callouts_stay_short():
     assert repeats.brief("Hold tree.") == "Hold tree."
     long = "Two on A, one heaven, so stack B with the whole team and hit fast before they rotate through mid and doors."
     assert repeats.brief(long) == long  # one sentence always stays
+
+
+def test_a_reply_cut_by_its_limit_ends_on_a_whole_sentence():
+    assert repeats.whole_sentences("Nice. Stay high, peek wide. Then when they") == "Nice. Stay high, peek wide."
+    assert repeats.whole_sentences("All good 🔥") == "All good 🔥"
+    assert repeats.whole_sentences("no end at all") == "no end at all"
+
+
+def test_filler_words_dont_make_a_repeat():
+    said = ["Got your map? Just wait for that first move. What do you need right now? Let me know what's on your mind."]
+    assert not repeats.too_similar("Bet, which agent tonight? I'll call the first fight with you.", said)
+
+
+def test_just_chatting_in_a_valorant_chat_gets_no_strats():
+    r = router.route("beforre u get bored or before i get bored", "valorant")  # (from the user's screenshot)
+    assert "doesn't mention the game" in r.note and "Valorant: help with exactly this" not in r.note
+    r = router.route("how should we hit A on Ascent?", "valorant")
+    assert "Valorant: help with exactly this" in r.note

@@ -440,13 +440,17 @@ class Api:
                     made = attachments.save_made(chat_id, data, ext, "image", prompt)
                 else:
                     path, source = generate.make_video(prompt, picture, status, self._stop)
-                    made = attachments.save_made(chat_id, Path(path).read_bytes(), Path(path).suffix.lstrip(".") or "mp4",
-                                                 "video", prompt)
-                    generate.tidy(path)
+                    try:  # saved into the chat first, then the download is deleted (even if saving failed)
+                        made = attachments.save_made(chat_id, Path(path).read_bytes(),
+                                                     Path(path).suffix.lstrip(".") or "mp4", "video", prompt)
+                    finally:
+                        generate.tidy(path)
                 log.info("Made a %s with %s in %.0fs", kind, source, time.time() - started)
                 usage.record(**{f"made_{kind}s": 1})
                 media.append(dict(made, url=attachments.load_url(chat_id, made["id"], 1280) if kind == "image" else None))
                 reply = generate.caption(kind, earlier)
+                if source.startswith("the official"):  # not his painting: the game's own art
+                    reply = f"here's {source.replace('the official ', '').replace(' art from the game', '')} straight from the game's files 🎯"
             except generate.Stopped:
                 reply = "(stopped)"
             except generate.LimitReached as e:

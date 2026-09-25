@@ -368,6 +368,29 @@ def run(api):
         return reply
     step("makes a video (free GPUs, daily limit)", video, soft=True)
 
+    def nothing_left():
+        import generate
+
+        left = [str(p) for p in generate.TMP.rglob("*")] if generate.TMP.exists() else []
+        if left:
+            raise Failed(f"downloads left behind after making things: {left[:5]}")
+        saved = js("document.querySelectorAll('.made img, .made video').length")
+        return f"temp folder empty, {saved} made things still in the chat"
+    step("nothing left behind after making things", nothing_left)
+
+    def official_art():
+        from paths import DATA
+
+        new_chat_now()
+        reply = chat("make me a picture of jett", timeout=300)
+        wait_for("(() => { const i = document.querySelector('.made img'); return i && i.naturalWidth > 100; })()", 60,
+                 f"Jett's picture (he said {reply!r})")
+        log_text = (DATA / "flip.log").read_text(encoding="utf-8", errors="ignore")
+        if "official Jett art" not in log_text:
+            raise Failed("the picture of Jett wasn't the real art from the game")
+        return reply
+    step("a picture of Jett is the real art", official_art, soft=True)
+
     def shortcut():
         from paths import DATA
 

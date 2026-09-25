@@ -52,6 +52,8 @@ MATH = [
      lambda r: re.search(r"-\s?4\s?%|4\s?% (decrease|lower|less|down|drop)|decrease of 4|down 4|drops? by 4|lower by 4|4\\?%", r.lower()) is not None, True),
 ]
 
+STRATS = re.compile(r"\b(smoke|flash|plant|rotate|execute|heaven|ramps|a main|b main|retake|util|lineup|crossfire)\w*",
+                    re.I)
 VALORANT = [
     # (messages in one chat, check(last reply) -> bool, what it tests)
     (["What does Sova's ultimate do?"], lambda r: "hunter" in r.lower() or ("three" in r.lower() or "3" in r) and "wall" in r.lower(), "knows an ult"),
@@ -79,6 +81,9 @@ VALORANT = [
     (["I play Yoru", "what should I work on?", "ok what else?"], lambda r: True, "keeps adding new things"),
     (["why did we lose? Bind, 6-13, I was Jett, 9/17/3, I died first in 8 rounds"],
      lambda r: re.search(r"first|trade|entry|util", r.lower()) is not None and words(r) >= 40, "match review like a coach"),
+    (["How do we retake B on Bind as 3?", "before u get bored or before i get bored"],
+     lambda r: not STRATS.search(r), "no strats when we're just chatting"),
+    (["I play Yoru", "man i'm so tired today"], lambda r: not STRATS.search(r), "reads the room"),
     (["What should I buy with 2400 credits if my team is forcing?"],
      lambda r: re.search(r"spectre|stinger|bulldog|sheriff|marshal|judge|ghost|shield|armor|armour", r.lower()) is not None, "buy advice"),
 ]

@@ -10,7 +10,7 @@ import web
 
 # Shaped like valorant-api.com's answers (trimmed).
 AGENTS = [
-    {"displayName": "Jett", "isPlayableCharacter": True, "role": {"displayName": "Duelist"}, "abilities": [
+    {"displayName": "Jett", "isPlayableCharacter": True, "fullPortrait": "http://art/jett.png", "role": {"displayName": "Duelist"}, "abilities": [
         {"slot": "Ultimate", "displayName": "Blade Storm", "description": "EQUIP a set of highly accurate knives."},
         {"slot": "Ability1", "displayName": "Updraft", "description": "INSTANTLY propel Jett high into the air."},
         {"slot": "Ability2", "displayName": "Tailwind", "description": "ACTIVATE to prepare a gust of wind."},
@@ -21,7 +21,7 @@ AGENTS = [
     {"displayName": "Sova", "isPlayableCharacter": False, "role": None, "abilities": []},  # a duplicate test entry
 ]
 MAPS = [
-    {"displayName": "Ascent", "tacticalDescription": "A/B Sites", "callouts": [
+    {"displayName": "Ascent", "splash": "http://art/ascent.png", "tacticalDescription": "A/B Sites", "callouts": [
         {"regionName": "Tree", "superRegionName": "A"}, {"regionName": "Heaven", "superRegionName": "A"},
         {"regionName": "Market", "superRegionName": "Mid"}, {"regionName": "Tree", "superRegionName": "A"}]},
     {"displayName": "The Range", "tacticalDescription": None, "callouts": None},
@@ -91,6 +91,8 @@ def test_refresh_downloads_once_a_day(monkeypatch):
     livedata.STATE.write_text(json.dumps(dict(state, checked=0)))
     assert livedata.refresh() is False and FakeAPI.calls[n:] == ["/v1/version"]  # a day later, same version: just a check
     assert any(s["source"] == "valorant-current" for s in knowledge.load())  # his notes read it
+    assert livedata.art() == {"jett": {"name": "Jett", "kind": "agent", "url": "http://art/jett.png"},
+                              "ascent": {"name": "Ascent", "kind": "map", "url": "http://art/ascent.png"}}
     server.shutdown()
     livedata.NOTES.unlink()
 

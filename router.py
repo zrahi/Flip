@@ -278,7 +278,7 @@ def route(text, mode="auto", recent="", voice=False, pictures=0):
     roblox = _has(ROBLOX_WORDS, t) or (_has(ROBLOX_WORDS, recent.lower()) and _has(CODE_WORDS, t))
     code = not chit and (mode == "code" or roblox or "```" in text or _has(CODE_WORDS, t))
     if chit:
-        r.max_tokens = 80
+        r.max_tokens = 50  # a long answer to "wsp" only has room to ramble (and repeat itself)
         notes.append("(Just small talk: reply like a friend would, in one short natural line. No pitch about what "
                      "you can do.)")
 
@@ -306,6 +306,13 @@ def route(text, mode="auto", recent="", voice=False, pictures=0):
             r.temperature = 0.5
             notes.append("(Live match: reply with 1-3 short imperative callouts, under 20 words total, using the "
                          "match state and the map's real callouts. No greetings, emojis or generic advice.)")
+        elif not is_valorant(t) and not FRESH.search(t) and not REVIEW.search(t):
+            # "before u get bored or before i get bored" is not a question about the game: forcing the coaching
+            # note on every short message in a Valorant chat got it an A-site execute
+            notes.append("(We've been talking Valorant, but this message doesn't mention the game. If it clearly "
+                         "follows on from what we were just discussing, keep helping with that. If it's just chat, "
+                         "reply to what I actually said, like a friend. If you can't tell what I mean, ask me in one "
+                         "short line. Never answer with game advice I didn't ask for.)")
         else:
             notes.append("(Valorant: help with exactly this, straight away and confidently, like a coach who's also "
                          "my duo: concrete spots, util and timing for my situation, and why. Don't talk about how "

@@ -1,3 +1,5 @@
+import urllib.parse
+from pathlib import Path
 import threading
 import types
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -178,7 +180,9 @@ def test_pictures(monkeypatch):
     monkeypatch.setattr(generate, "POLLINATIONS", f"http://127.0.0.1:{server.server_port}/prompt/")
     data, ext, source = generate.make_image("jett dashing on ascent")
     assert data.startswith(b"\x89PNG") and ext == "png" and "Pollinations" in source
-    assert FakePollinations.path_seen.startswith("/prompt/jett%20dashing%20on%20ascent?") and "safe=true" in FakePollinations.path_seen
+    seen = urllib.parse.unquote(FakePollinations.path_seen)
+    assert seen.startswith("/prompt/jett dashing on ascent. Jett is a young Korean woman with short white hair")
+    assert "fully clothed" in seen and "safe=true" in seen and "Venice" in seen
 
     FakePollinations.down = True  # down: a free FLUX demo does it instead
     monkeypatch.setattr(generate, "run_space", lambda space, kind, *a, **k: (_ for _ in ()).throw(RuntimeError("busy")))
@@ -240,3 +244,71 @@ def test_with_a_real_gradio_demo(tmp_path):
         assert open(got, "rb").read().endswith(b"a red square spinning")
     finally:
         demo.close()
+
+
+def test_agents_and_maps_look_right():
+    d = generate.describe("jett throwing daggers")
+    assert "short white hair" in d and "kunai" in d and "Valorant" in d and "fully clothed" in d
+    assert "Bhutan" in generate.describe("haven at night")
+    assert generate.describe("a cat in space") == "a cat in space"  # nothing to add
+    assert "fully clothed" in generate.describe("anime girl with a sword")
+
+
+class FakeArt(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def do_GET(self):
+        body = b"\x89PNG\r\n\x1a\n" + b"a" * 5000
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def test_plain_agent_or_map_pictures_are_the_real_art(monkeypatch):
+    import livedata
+
+    server = HTTPServer(("127.0.0.1", 0), FakeArt)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{server.server_port}/"
+    monkeypatch.setattr(livedata, "art", lambda: {"jett": {"name": "Jett", "kind": "agent", "url": url + "jett"},
+                                                  "haven": {"name": "Haven", "kind": "map", "url": url + "haven"}})
+    for ask in ("Jett", "jett full body", "the valorant map haven", "Haven"):
+        data, ext, source = generate.make_image(ask)
+        assert data.startswith(b"\x89PNG") and "official" in source, ask
+    monkeypatch.setattr(generate, "_pollinations", lambda prompt, size, stop: (b"painted", "jpg"))
+    assert generate.make_image("jett throwing daggers")[0] == b"painted"  # a scene gets painted
+    assert generate.make_image("jett and haven")[0] == b"painted"
+    server.shutdown()
+
+
+def test_nothing_is_left_behind_after_making_a_video(monkeypatch):
+    import shutil
+
+    shutil.rmtree(generate.TMP, ignore_errors=True)
+    monkeypatch.setattr(generate, "_pollinations", lambda prompt, size, stop: (b"\x89PNG" + b"f" * 3000, "png"))
+
+    def space(name, kind, prompt, pic, *a, **k):
+        if pic is None or "wan" not in name or "faster" not in name:
+            raise RuntimeError("busy")  # only painting the first frame and animating it works
+        out = generate.TMP / "run1" / "video.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"video")
+        return str(out)
+    monkeypatch.setattr(generate, "run_space", space)
+    path, source = generate.make_video("a frog dancing")
+    assert Path(path).read_bytes() == b"video"
+    generate.tidy(path)
+    assert not generate.TMP.exists() or not any(generate.TMP.rglob("*"))  # the painted frame is gone too
+
+
+def test_starting_flip_clears_leftover_downloads_but_keeps_what_he_made():
+    import storage
+
+    made = attachments.save_made("keepchat", b"\x89PNG" + b"k" * 3000, "png", "image", "a kept picture")
+    (generate.TMP / "crashed").mkdir(parents=True, exist_ok=True)
+    (generate.TMP / "crashed" / "half.mp4").write_bytes(b"half")
+    storage.tidy_on_start()
+    assert not generate.TMP.exists()
+    assert attachments.path_of("keepchat", made["id"]).read_bytes().startswith(b"\x89PNG")  # never lost

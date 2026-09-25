@@ -56,9 +56,113 @@ def not_ok(prompt):
 
 # ---------- pictures ----------
 
+# What the agents and maps look like: picture AIs don't know Valorant, so "Jett" alone came out as a random
+# (and too sexy) woman. Only looks that are sure; the others get the game's art style and their name.
+LOOKS = {
+    "jett": "a young Korean woman with short white hair, a white-and-blue jacket over a dark bodysuit, swirling blue "
+            "wind, throwing glowing blue kunai knives",
+    "phoenix": "a young Black British man with short curly hair, a white-and-orange jacket, hands wreathed in fire",
+    "sage": "a Chinese woman with long black hair in a ponytail, a white-and-teal outfit, a glowing jade healing orb",
+    "sova": "a tall Russian man with white-blond hair tied back, a blue hooded coat, one glowing bionic eye, a "
+            "high-tech recon bow",
+    "reyna": "a Mexican woman with long black hair, glowing purple eyes, a black-and-purple outfit, purple soul orbs",
+    "omen": "a tall hooded shadow figure in a dark blue cloak, faceless except three glowing blue slits, drifting "
+            "shadow smoke",
+    "viper": "a woman with dark hair in a bun, a black-and-green suit and a gas mask, toxic green gas",
+    "cypher": "a man in a white trench coat and white hat, face hidden behind a white mask with glowing eyes, spy "
+              "cameras and tripwires",
+    "killjoy": "a young German woman with round glasses, a green beanie and a yellow jacket, a small robot turret",
+    "raze": "a Brazilian woman in an orange-and-yellow outfit with a cap, a rocket launcher, playful explosives",
+    "yoru": "a Japanese man with spiky dark blue hair, a blue-and-black jacket, a glowing blue dimensional rift",
+    "neon": "a Filipina woman with blue hair in two long pigtails, a blue-and-black suit, crackling blue lightning",
+    "chamber": "a French man with slicked hair and glasses in a sharp tailored suit, gold custom pistols",
+    "skye": "an Australian woman with red braided hair, a green outfit, glowing green hawk and wolf spirits",
+    "breach": "a Swedish man with a red beard and mohawk, huge orange bionic arms, seismic blasts",
+    "kay/o": "a battle robot with a white-and-blue armored body and a glowing face screen",
+    "astra": "a Ghanaian woman with gold jewelry and cosmic purple-and-gold star powers",
+}
+PLACES = {
+    "haven": "a mountain temple monastery in Bhutan, stone courtyards and wooden buildings with golden roofs, "
+             "prayer flags, misty peaks",
+    "ascent": "a Venice-like Italian city on a floating island, cobblestone plazas, domes and arches",
+    "bind": "a Moroccan desert city, sandstone buildings, arches and glowing teleporters",
+    "split": "a vertical Tokyo city, neon signs, tall towers and ropes between levels",
+    "icebox": "an arctic shipping yard, snow, stacked containers and cranes",
+    "breeze": "a tropical Caribbean island, turquoise water, ancient stone ruins and palm trees",
+    "fracture": "a research facility split in half, desert on one side and farmland on the other",
+    "pearl": "an underwater Portuguese city under a dome, tiled buildings and blue light",
+    "lotus": "an ancient Indian city in green mountains, carved stone temples and big rotating stone doors",
+    "sunset": "a Los Angeles street at sunset, taco shops, palm trees and warm light",
+    "abyss": "a facility on floating cliffs over a bottomless abyss in Norway, no railings, cold light",
+}
+PEOPLE = re.compile(r"\b(woman|women|girl|lady|man|men|guy|boy|person|people|character|agent|anime|waifu|she|her|he|"
+                    r"him)\b", re.I)
+ART_ONLY = re.compile(r"\b(valorant|agent|map|official|art|artwork|splash|portrait|picture|pic|image|photo|of|the|a|an|"
+                      r"in|from|full|body|hd|4k|wallpaper|what|looks?|like|does|do|show|me)\b", re.I)
+
+
+def _names(prompt, names):
+    low = prompt.lower()
+    return [n for n in names if re.search(rf"(?<![a-z0-9]){re.escape(n)}(?![a-z0-9])", low)]
+
+
+def describe(prompt):
+    """The prompt with what the picture AI needs to know: how agents and maps look, and fully clothed people."""
+    agents = _names(prompt, LOOKS)
+    places = _names(prompt, PLACES)
+    try:
+        import livedata
+        known = livedata.art()
+    except Exception:
+        known = {}
+    others = [n for n, a in known.items() if a["kind"] == "agent" and n not in LOOKS and n in _names(prompt, [n])]
+    extra = [f"{n.title()} is {LOOKS[n]}" for n in agents]
+    extra += [f"{n.title()} is {PLACES[n]}" for n in places]
+    extra += [f"{known[n]['name']} is an agent from the game Valorant" for n in others]
+    valorant = bool(extra) or "valorant" in prompt.lower()
+    if valorant:
+        extra.append("Valorant game art style, stylized painterly splash art")
+    if agents or others or PEOPLE.search(prompt):
+        extra.append("fully clothed, non-suggestive, safe for work")
+    return ". ".join([prompt] + extra) if extra else prompt
+
+
+def official_art(prompt, stop=None):
+    """"a picture of Jett", "Haven": the real picture from the game's files (bytes, ext, name) or None."""
+    try:
+        import livedata
+        known = livedata.art()
+    except Exception:
+        return None
+    hits = _names(prompt, known)
+    if len(hits) != 1:
+        return None
+    rest = ART_ONLY.sub(" ", re.sub(re.escape(hits[0]), " ", prompt.lower()))
+    if re.search(r"[a-z]{2}", re.sub(r"[^a-z\s]", " ", rest)):
+        return None  # "Jett throwing daggers": a scene, so it gets painted
+    if stop is not None and stop.is_set():
+        raise Stopped()
+    a = known[hits[0]]
+    with urllib.request.urlopen(urllib.request.Request(a["url"], headers={"User-Agent": "Flip/1.0"}), timeout=60) as r:
+        kind = (r.headers.get("Content-Type") or "").split(";")[0].strip()
+        data = r.read(25 * 1024 * 1024)
+    if not kind.startswith("image/") or len(data) < 2000:
+        return None
+    return data, {"image/jpeg": "jpg", "image/webp": "webp"}.get(kind, "png"), a["name"]
+
+
 def make_image(prompt, size=(1024, 1024), on_status=lambda s: None, stop=None):
     """Returns (bytes, extension, what made it)."""
+    try:
+        found = official_art(prompt, stop)
+        if found:
+            return found[0], found[1], f"the official {found[2]} art from the game"
+    except Stopped:
+        raise
+    except Exception as e:
+        log.warning("Couldn't get the official art: %s", e)
     on_status("painting it… 🎨")
+    prompt = describe(prompt)
     try:
         data, ext = _pollinations(prompt, size, stop)
         return data, ext, "Pollinations (FLUX)"
@@ -83,7 +187,8 @@ def _pollinations(prompt, size, stop):
     if stop is not None and stop.is_set():
         raise Stopped()
     params = urllib.parse.urlencode({"width": size[0], "height": size[1], "seed": random.randint(1, 2 ** 31 - 1),
-                                     "model": "flux", "nologo": "true", "enhance": "true", "safe": "true",
+                                     "model": "flux", "nologo": "true", "safe": "true",
+                                     "enhance": "false" if ". " in prompt else "true",
                                      "private": "true"})
     url = f"{POLLINATIONS}{urllib.parse.quote(prompt[:900], safe='')}?{params}"
     with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Flip/1.0"}), timeout=150) as r:
@@ -106,19 +211,23 @@ def make_video(prompt, picture=None, on_status=lambda s: None, stop=None):
         plans.append((PICTURE_TO_VIDEO[0], "paint"))
     problems = []
     for space, pic in plans:
+        painted = None
         try:
             if pic == "paint":
                 data, ext, _ = make_image(prompt + ", cinematic film still", (1280, 720), on_status, stop)
                 TMP.mkdir(parents=True, exist_ok=True)
-                pic = TMP / f"frame-{uuid.uuid4().hex[:8]}.{ext}"
+                pic = painted = TMP / f"frame-{uuid.uuid4().hex[:8]}.{ext}"
                 pic.write_bytes(data)
-            path = run_space(space, "video", prompt + VIDEO_STYLE, pic, on_status, stop, timeout=900)
+            path = run_space(space, "video", describe(prompt) + VIDEO_STYLE, pic, on_status, stop, timeout=900)
             return path, space
         except (Stopped, LimitReached):
             raise
         except Exception as e:
             log.warning("%s couldn't make the video: %s", space, e)
             problems.append(f"{space.split('/')[-1]}: {str(e)[:120]}")
+        finally:
+            if painted is not None:
+                painted.unlink(missing_ok=True)  # only needed while the video was being made
     raise MakeError("the free video makers are down or busy right now 😵 try again in a bit")
 
 
@@ -292,5 +401,7 @@ def tidy(path):
             path.unlink(missing_ok=True)
             if folder is not None:
                 shutil.rmtree(folder, ignore_errors=True)
+            if TMP.exists() and not any(TMP.iterdir()):
+                TMP.rmdir()
     except OSError:
         pass
