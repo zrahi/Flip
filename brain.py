@@ -39,6 +39,7 @@ MEMORY_TOOLS = [
 
 
 REPLY_ROOM = 1500      # tokens kept free for his answer
+REDO_TOKENS = 300      # a redo of a repeat: a few fresh sentences, not a whole new essay (keeps it quick)
 
 # Words that mean the chat is about Roblox, so Roblox Studio's tools should come along.
 ROBLOX_WORDS = ["roblox", "studio", "luau", "lua", "script", "houseflipper", "house flipper", "workspace",
@@ -489,7 +490,8 @@ class Brain:
                 watch.feed(piece)
 
             got, halted = self.backend.answer(system, messages, tools, self._run_tool, feed, _Either(stop, watch),
-                                              max_tokens=limit, temperature=1.0 if redo else way.temperature, redo=redo)
+                                              max_tokens=min(limit, REDO_TOKENS) if redo else limit,
+                                              temperature=1.0 if redo else way.temperature, redo=redo)
             if stop is not None and stop.is_set():
                 watch.flush()  # the stop button: what he was in the middle of saying still shows
             elif halted and watch.stopped:
