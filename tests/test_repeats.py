@@ -211,3 +211,11 @@ def test_tool_loops_end_with_an_answer():
     reply, stopped = b.answer("sys", [{"role": "user", "content": "hi"}], [tool], lambda name, args: "x" * 3000)
     assert reply == "it's 2" and not stopped
     assert asked[-1] is False and len(asked) < MAX_TOOL_STEPS  # stopped offering tools before the chat overflowed
+
+
+def test_reworded_first_sentence_in_a_call_is_caught_before_it_is_said():
+    before = "I'm in coach mode now—ready to go into the game. Let's get that bot frag thing fixed up for you."
+    shown = []
+    w = feed(repeats.Watch([before], shown.append, every=True),
+             ["I'm in the right mode now—ready for that coach session. ", "Let's get started!"])
+    assert w.stopped and shown == []  # (from a real voice call in the Windows build)

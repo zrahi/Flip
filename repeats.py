@@ -252,6 +252,7 @@ class Watch:
 
     def __init__(self, earlier, emit, every=False, redo=False):
         self._old = [s for e in earlier for s in sentences(e)]
+        self._contents = [content(e) for e in earlier]
         self._openers = [ss[0][0] for ss in (sentences(e) for e in earlier[-3:]) if ss]
         self._emit = emit
         self._redo = redo
@@ -335,6 +336,10 @@ class Watch:
             for w, _ in parts:
                 if len(w) >= 3 and any(same(w, o) for o, _ in self._old):
                     return self._stop(f"said before: {' '.join(w)}")
+            # reworded: "I'm in coach mode now, ready to go" → "I'm in the right mode now, ready for that coach session"
+            mine = content(part)
+            if len(mine) >= 4 and any(len(mine & c) / len(mine) >= 0.5 for c in self._contents):
+                return self._stop(f"same words as before: {part.strip()[:60]}")
             self._started = True
             self._show(self._lead + part)
             self._lead = ""
