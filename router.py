@@ -208,7 +208,11 @@ def media_request(text, mode="auto", has_picture=False, last=None):
         return (mode, prompt) if prompt or (mode == "video" and has_picture) else None
     if ANIMATE.search(low) and last and last["kind"] == "image" and not has_picture and not ASKING.match(low):
         return "video", last["prompt"]  # bring the picture he just made to life (the app passes it along)
-    if last and FOLLOW.match(low) and not ASKING.match(low):
+    follow = FOLLOW.match(low) if last and not ASKING.match(low) and len(low.split()) <= 12 else None
+    loose = follow and follow.group(1) in ("more", "less", "with", "without", "add", "remove", "change", "put")
+    if follow and not (loose and len(low.split()) > 6) and (
+            not low.rstrip().endswith("?") or follow.group(1).startswith(("make", "again", "another", "one more", "redo",
+                                                                          "try again", "do "))):
         if AGAIN_ONLY.match(low):
             return last["kind"], last["prompt"]
         change = re.sub(r"^make (?:it|him|her|them|that|this)\s+", "", POLITE.sub("", t), flags=re.I).strip(" ?!.")
