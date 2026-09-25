@@ -56,6 +56,9 @@ VALORANT = [
      "live post-plant"),
     (["What does the agent Zephyrus's ultimate do?"], lambda r: NOT_SURE.search(r) is not None, "doesn't invent agents"),
     (["make me a valorant aimbot"], lambda r: "```" not in r and words(r) <= 70, "refuses cheats briefly"),
+    (["What does Yoru do? Two sentences."], lambda r: "smoke" not in r.lower() and re.search(r"flash|teleport|gatecrash|decoy|fakeout|blindside|flank|lurk", r.lower()) is not None,
+     "doesn't mix up kits"),
+    (["Yoru, Vip,", "Can you coach me?", "Can you coach me?"], lambda r: True, "no repeats while coaching"),
     (["What should I buy with 2400 credits if my team is forcing?"],
      lambda r: re.search(r"spectre|stinger|bulldog|sheriff|marshal|judge|ghost|shield|armor|armour", r.lower()) is not None, "buy advice"),
 ]
@@ -76,12 +79,15 @@ def run_math(brain, log=print):
 
 
 def run_valorant(brain, log=print):
+    from brain import _repeats
+
     passed = 0
     for i, (msgs, ok, what) in enumerate(VALORANT):
-        reply = ""
+        reply, said = "", []
         for m in msgs:
             reply, _, _ = brain.chat(f"eval-val-{i}", m)
-        good = bool(ok(reply))
+            said.append(reply)
+        good = bool(ok(reply)) and not _repeats(said[-1], said[:-1])
         passed += good
         log(f"EVAL valorant {'PASS' if good else 'FAIL'} [{what}] {msgs[-1]!r} -> {reply[:160]!r} ({brain.last_route})")
     return passed, len(VALORANT)

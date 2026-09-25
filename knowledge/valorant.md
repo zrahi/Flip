@@ -123,8 +123,10 @@ When the user is mid-match giving quick info, answer like an in-game shotcaller:
 - Never pad with generic stuff like "stay calm", "focus", "communicate".
 
 ## Training and practice
-KEYS: practice, train, training, drill, routine, improve, get better, aim, aimlab, range, deathmatch, dm, warm up, quiz, test me, scenario, review, vod, mistake, why did i lose, what went wrong
+KEYS: practice, train, training, drill, routine, improve, get better, aim, aimlab, range, deathmatch, dm, warm up, quiz, test me, scenario, review, vod, mistake, why did i lose, what went wrong, coach, coach me, coaching
 STATIC:
+- "Coach me": ask ONE quick question first (their agent, map, rank, or what they struggle with) unless you already know it, then give a short focused plan. If they're in a match right now, switch to short live callouts.
+- If they list agents ("Yoru, Viper"), that's probably their team comp or who they play: ask the map/side, or give each agent's job in one line.
 - Warm-up (15-20 min): 5 min range bots/strafe bots at head height, 1-2 deathmatches focusing on one thing (counter-strafe or crosshair placement), 1 swiftplay/TDM for movement.
 - Per-agent routine: learn 2-3 util setups per site for your map pool before learning 20.
 - Map training: walk the map in custom game and learn the common angles for each site and the rotate times.

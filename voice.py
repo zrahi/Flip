@@ -102,7 +102,7 @@ FRAME = 512  # 32 ms at 16 kHz: the size the speech detector works on
 HINT_WORDS = ("Flip, Valorant, Jett, Reyna, Raze, Phoenix, Neon, Iso, Yoru, Sova, Skye, Fade, Gekko, KAY/O, Breach, "
               "Omen, Viper, Astra, Harbor, Clove, Brimstone, Killjoy, Cypher, Sage, Chamber, Deadlock, Vyse, Tejo, "
               "Waylay, Vandal, Phantom, Operator, Sheriff, Ascent, Haven, Bind, Split, Lotus, Sunset, Icebox, Breeze, "
-              "Pearl, Fracture, Abyss, Radiant, Immortal, clutch, eco, one tap, gg.")
+              "Pearl, Fracture, Abyss, Radiant, Immortal, clutch, eco, one tap, gg. Coach me. Can you coach me?")
 
 
 class Ears:

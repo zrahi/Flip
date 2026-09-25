@@ -11,7 +11,7 @@ MODES = ("auto", "fast", "think", "math", "valorant", "code")
 
 AGENTS = ["jett", "reyna", "raze", "phoenix", "yoru", "neon", "iso", "waylay", "sova", "breach", "skye", "kayo",
           "kay/o", "fade", "gekko", "tejo", "brimstone", "brim", "omen", "viper", "astra", "harbor", "clove", "sage",
-          "cypher", "killjoy", "chamber", "deadlock", "vyse", "veto"]
+          "cypher", "killjoy", "chamber", "deadlock", "vyse", "veto", "vip", "kj", "cyph", "chamb", "reyn"]
 MAPS = ["ascent", "bind", "haven", "split", "lotus", "sunset", "icebox", "breeze", "pearl", "fracture", "abyss",
         "corrode"]
 VAL_WORDS = ["valorant", "valo", "spike", "planted", "defuse", "defusing", "eco round", "anti eco", "anti-eco",
@@ -22,7 +22,7 @@ VAL_WORDS = ["valorant", "valo", "spike", "planted", "defuse", "defusing", "eco 
              "a site", "b site", "c site", "a main", "b main", "mid", "rotate", "stack", "flank", "last guy",
              "buy or save", "save or buy", "eco", "force", "one tap", "peek", "peeking", "util", "utility",
              "pistol", "pistol round", "save round", "plant", "rifle round", "full save", "agent", "agents",
-             "ultimate", "abilities", "ability"]
+             "ultimate", "abilities", "ability", "coach", "coach me", "coaching"]
 LIVE_WORDS = ["planted", "flank", "flanking", "last guy", "last one", "rotate", "rotating", "push", "pushing",
               "they're", "theyre", "enemy", "enemies", "we planted", "spike down", "heard", "saw", "spotted", "lit",
               "one shot", "tagged", "attack", "attacking", "defense", "defending", "credits", "save or buy",

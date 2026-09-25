@@ -239,6 +239,29 @@ def window_start(n):
     return ((n - MAX_HISTORY) // 10 + 1) * 10
 
 
+class _Either:
+    """Stops the brain when either event is set."""
+
+    def __init__(self, *events):
+        self.events = [e for e in events if e is not None]
+
+    def is_set(self):
+        return any(e.is_set() for e in self.events)
+
+
+def _starts_like(start, earlier):
+    """True if a reply that starts like this is heading for one of the earlier replies."""
+    import difflib
+
+    norm = lambda t: re.sub(r"[^a-z0-9 ]", "", t.lower()).strip()
+    s = norm(start)
+    for e in earlier:
+        e = norm(e)[: len(s) + 5]
+        if e and (difflib.SequenceMatcher(None, s, e).ratio() > 0.75 or s[:25] == e[:25]):
+            return True
+    return False
+
+
 def _repeats(reply, earlier):
     """True if the reply is (nearly) one of his earlier replies, or starts the same way."""
     import difflib
@@ -422,26 +445,63 @@ class Brain:
         started, first = time.time(), [None]
         self.last_times = {"request": started}  # filled in as it happens (the voice timing reads it mid-reply)
 
+        # Repeat guard: the first ~30 characters are held back and compared with his earlier replies. If
+        # he's starting to say the same thing again, the reply is cut right there and redone (nothing was
+        # shown or spoken yet), instead of redoing a whole finished reply.
+        held, gate, abort = [], {"open": not earlier}, threading.Event()
+        halt = _Either(stop, abort)
+
+        def release():
+            gate["open"] = True
+            if on_text and held:
+                on_text("".join(held))
+
         def stream_text(piece):
             if first[0] is None:
                 first[0] = time.time()
                 self.last_times["first_token"] = first[0]
-            if on_text:
-                on_text(piece)
+            if gate["open"]:
+                if on_text:
+                    on_text(piece)
+                return
+            held.append(piece)
+            so_far = "".join(held)
+            if len(so_far.strip()) >= 30:
+                if _starts_like(so_far, earlier):
+                    abort.set()
+                else:
+                    release()
 
         system = self._system(topic)
         history, tools = self._fit(system, history, self._tools(topic))
         try:
             reply, stopped = self.backend.answer(system, history, tools, self._run_tool,
-                                                 stream_text, stop, max_tokens=limit, temperature=way.temperature)
+                                                 stream_text, halt, max_tokens=limit, temperature=way.temperature)
         except Exception as e:
             if "exceed_context_size" not in str(e) and "context" not in str(e).lower():
                 raise
             log.warning("Still too long for the brain, retrying short: %s", e)  # guesses were off; go minimal
             reply, stopped = self.backend.answer(self._system(), history[-2:], list(MEMORY_TOOLS), self._run_tool,
-                                                 stream_text, stop, max_tokens=limit, temperature=way.temperature)
+                                                 stream_text, halt, max_tokens=limit, temperature=way.temperature)
+        if not gate["open"] and not stopped and _starts_like("".join(held), earlier):
+            abort.set()  # a short reply that never reached 30 characters, but it's still a copy
+        if abort.is_set() and not (stop is not None and stop.is_set()):
+            log.info("Started repeating an earlier reply, redoing it: %s", "".join(held)[:80])
+            gate["open"], held[:] = True, []
+            last = history[-1]
+            nudge = (f"\n\n(Don't repeat your earlier answer. Reply to exactly what I just said: \"{text}\". "
+                     f"If it's unclear what I mean, ask me a quick question instead.)")
+            content = last["content"]
+            if isinstance(content, list):
+                content = [dict(content[0], text=content[0]["text"] + nudge)] + content[1:]
+            else:
+                content += nudge
+            reply, stopped = self.backend.answer(system, history[:-1] + [{"role": "user", "content": content}], tools,
+                                                 self._run_tool, stream_text, stop, max_tokens=limit, temperature=1.0)
+        elif not gate["open"] and not stopped:
+            release()  # a short reply that never reached the check
         # (not in voice calls: he's already saying it out loud, and a redo costs a whole reply of time)
-        if not stopped and reply and not voice and _repeats(reply, earlier):
+        if not stopped and reply and not voice and not abort.is_set() and _repeats(reply, earlier):
             # Still said the same thing as before: throw it away and try again, told plainly this time.
             log.info("Reply repeated an earlier one, retrying: %s", reply[:80])
             if on_reset:

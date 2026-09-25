@@ -321,7 +321,7 @@ class FakeModel(BaseHTTPRequestHandler):
                 "name": "math", "arguments": json.dumps({"expression": "59382*912"})}}]})
         elif isinstance(last["content"], str) and "repeat test" in last["content"]:
             # a lazy brain: pastes its previous reply, unless told off
-            if "first try repeated" in last["content"]:
+            if "first try repeated" in last["content"] or "Don't repeat your earlier answer" in last["content"]:
                 words = ["alright ", "fresh ", "answer ", "this ", "time"]
             else:
                 prev = [m["content"] for m in body["messages"] if m["role"] == "assistant"][-1]
@@ -396,10 +396,14 @@ def test_brain_memory_tools_and_streaming():
     assert parts[1] == {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AAAA"}}
     assert store.load_chat("c0ffee")["messages"][-2]["content"] == "what's on my screen?"  # the picture isn't saved
 
-    resets = []
-    reply, _, _ = b.chat("c0ffee", "repeat test", on_reset=lambda: resets.append(1))
-    assert resets == [1] and reply == "alright fresh answer this time"  # the copy got thrown away
+    resets, shown = [], []
+    reply, _, _ = b.chat("c0ffee", "repeat test", on_text=shown.append, on_reset=lambda: resets.append(1))
+    assert reply == "alright fresh answer this time"  # the copy got caught early and redone…
+    assert resets == [] and "".join(shown) == reply     # …before any of it was shown or spoken
     assert FakeModel.last["temperature"] == 1.0
+    shown.clear()
+    reply, _, _ = b.chat("c0ffee", "repeat test", voice=True, on_text=shown.append)  # in voice calls too
+    assert reply == "alright fresh answer this time" and "".join(shown) == reply
     assert FakeModel.last["dry_multiplier"] > 0
 
     FakeModel.slow = True  # the stop button
