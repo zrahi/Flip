@@ -219,3 +219,13 @@ def test_reworded_first_sentence_in_a_call_is_caught_before_it_is_said():
     w = feed(repeats.Watch([before], shown.append, every=True),
              ["I'm in the right mode now—ready for that coach session. ", "Let's get started!"])
     assert w.stopped and shown == []  # (from a real voice call in the Windows build)
+
+
+def test_live_callouts_stay_short():
+    r = ("Hold tree. Smoke hut. Flash off contact. Clear root. Drop. Play crossfire. Don't give 1v1.\n\n"
+         "Lotus, Phoenix — attack A. B is small site. Rotate doors loud. Watch")  # (from the Windows build)
+    assert repeats.brief(r) == "Hold tree. Smoke hut. Flash off contact. Clear root. Drop. Play crossfire. Don't give 1v1."
+    assert len(repeats.words(repeats.brief(r))) <= 22
+    assert repeats.brief("Hold tree.") == "Hold tree."
+    long = "Two on A, one heaven, so stack B with the whole team and hit fast before they rotate through mid and doors."
+    assert repeats.brief(long) == long  # one sentence always stays

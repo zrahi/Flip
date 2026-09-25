@@ -225,6 +225,26 @@ def drop_meta(reply):
     return kept if words(kept) else reply
 
 
+def brief(reply, most=22):
+    """A mid-round callout: the first sentences, up to about most words (a small brain keeps going and
+    reads its notes back: "Lotus, Phoenix, attack A. B is small site…")."""
+    total, done = [0], [False]
+
+    def fits(sentence):
+        n = len(_raw_words(sentence))
+        if done[0] or (total[0] and (total[0] + n > most or (n and not sentence.strip()))):
+            done[0] = True
+            return False
+        if not sentence.strip() and "\n\n" in sentence:
+            done[0] = bool(total[0])  # a new paragraph after the callout: that's where he starts rambling
+            return False
+        total[0] += n
+        if total[0] and re.search(r"\n\s*\n\s*$", sentence):
+            done[0] = True
+        return True
+    return re.sub(r"\s*\n\s*", " ", _keep(reply, fits)).strip() or reply
+
+
 def fallback(user_repeated, earlier):
     lines = FALLBACK["repeated" if user_repeated else "other"]
     fresh = [l for l in lines if not any(same(words(l), words(e)) or words(l) == words(e) for e in earlier)]

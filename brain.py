@@ -549,6 +549,8 @@ class Brain:
                     emit(reply)
         if not voice and reply:
             reply = repeats.drop_meta(reply)  # the window shows the final reply, so it can still go here
+            if way.kind == "live":
+                reply = repeats.brief(reply)
         done = time.time()
         self.last_times.update(first_token=first[0] or done, done=done)
         self.last_stats = {"secs": round(done - started, 1),
