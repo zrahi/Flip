@@ -4,7 +4,7 @@
 KEYS: *valorant
 STATIC GAME KNOWLEDGE. Prices, damage and ability details get tuned in patches: if the user says something changed, trust them; if you're unsure of an exact current number, say so instead of guessing. If an agent, ability or map isn't in your notes, say you're not sure instead of making it up.
 - Rounds: 100 s. Spike blows 45 s after plant. Defuse 7 s; half (3.5 s) is saved if you let go. First to 13; at 12-12 overtime, win by 2.
-- The only agents: Jett, Reyna, Raze, Phoenix, Yoru, Neon, Iso, Waylay (duelists); Sova, Breach, Skye, KAY/O, Fade, Gekko, Tejo (initiators); Brimstone, Omen, Viper, Astra, Harbor, Clove (controllers); Sage, Cypher, Killjoy, Chamber, Deadlock, Vyse, Veto (sentinels). Any other name isn't a Valorant agent (Zenyatta, Mercy etc. are Overwatch).
+- Agents (if your notes have a LIVE agent list, it's newer and wins over this one): Jett, Reyna, Raze, Phoenix, Yoru, Neon, Iso, Waylay (duelists); Sova, Breach, Skye, KAY/O, Fade, Gekko, Tejo (initiators); Brimstone, Omen, Viper, Astra, Harbor, Clove (controllers); Sage, Cypher, Killjoy, Chamber, Deadlock, Vyse, Veto (sentinels). A name in neither list isn't a Valorant agent (Zenyatta, Mercy etc. are Overwatch).
 - The only guns: Classic, Shorty, Frenzy, Ghost, Sheriff, Stinger, Spectre, Bucky, Judge, Bulldog, Guardian, Phantom, Vandal, Marshal, Outlaw, Operator, Ares, Odin. No M4, AK, M416, P90, AWP (those are other games).
 - Roles: Duelist makes space and entries. Initiator gets info and flashes/stuns for the entry. Controller smokes sightlines (wins or loses executes). Sentinel holds a site or flank with traps/walls.
 - Pro habits: trade your teammate (stay close enough to kill his killer). Info before commitment. Don't re-peek the angle you just got a kill from. Use util before you swing, not after you die. Play for the round, not the kill.
@@ -133,6 +133,17 @@ STATIC:
 - Reviewing a round: find the one decision that lost it (dry peek, no trade, late rotate, wrong buy), say what to do instead, and why.
 - Quizzes: ask one question at a time (callout, eco decision, clutch scenario, positioning), wait for the answer, then grade it briefly and explain.
 - Keep plans short: a few bullet points, not essays.
+
+## Match review checklist
+KEYS: *review, review, scoreboard, stats, what went wrong, why did we lose, why did i lose, acs, adr, kast, k/d, kda, first blood, first death, econ
+How a coach reads a game (use what's visible; say what's missing):
+- Score and side: which half went wrong? Losing most attack rounds = executes/entries; most defense rounds = setups/rotations/retakes.
+- First deaths vs first bloods: dying first a lot (especially not as the duelist) is the #1 round-loser: dry peeks, no util, no trade partner. Fix: peek with util or a teammate, hold the angle instead of taking it.
+- K/D with low ACS/ADR: kills came late or in lost rounds (exit frags); high ADR low kills: damage without finishing (tagging, no re-peek plan, trade missing).
+- Role check: duelists should get first contact with a trade behind them; initiators get info/flash before the entry; controllers get smokes down on time (lower ADR is fine); sentinels hold flank and survive (low deaths, high KAST).
+- Econ: many losses after winning pistol = bad anti-eco (fighting close, giving guns); lost bonus rounds; forcing alone.
+- Plants/defuses and clutches: few plants on attack = hits too slow or no entry; lost post-plants = everyone sat on spike, no crossfire.
+- Always end with ONE focus for the next game (e.g. "don't take first contact without util") and one drill (e.g. 10 min Range strafe bots at head height, then 1 deathmatch only counter-strafing).
 
 ## Ascent
 KEYS: ascent

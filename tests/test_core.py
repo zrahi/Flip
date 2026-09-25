@@ -192,7 +192,7 @@ def test_everything_fits_in_the_brain():
     history = [{"role": "user" if i % 2 == 0 else "assistant", "content": "blah " * 400} for i in range(30)]
     history.append({"role": "user", "content": "a"})
     kept, tools = b._fit("system text", history, huge_tools)
-    assert [t["name"] for t in tools] == ["remember", "forget", "math"]  # the giant tool list got dropped
+    assert [t["name"] for t in tools] == ["remember", "forget", "math", "web_search"]  # the giant tool list got dropped
     assert kept[-1]["content"] == "a" and kept[0]["role"] == "user"
     total = estimate_tokens("system text") + estimate_tokens(json.dumps(tools)) + sum(estimate_tokens(m["content"]) for m in kept)
     assert total <= 8192 - REPLY_ROOM

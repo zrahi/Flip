@@ -14,6 +14,7 @@ import repeats
 import router
 import store
 import usage
+import web
 
 log = logging.getLogger("flip")
 
@@ -47,6 +48,11 @@ ROBLOX_WORDS = ["roblox", "studio", "luau", "lua", "script", "houseflipper", "ho
 
 class NoModelError(Exception):
     pass
+
+
+def base_tools():
+    """The tools he always has: memory, the calculator and web search."""
+    return list(MEMORY_TOOLS) + [mathtool.TOOL, web.TOOL]
 
 
 def estimate_tokens(content):
@@ -323,7 +329,7 @@ class Brain:
         return "\n\n".join(parts)
 
     def _tools(self, topic=""):
-        tools = list(MEMORY_TOOLS) + [mathtool.TOOL]  # always there, so the brain's cached work stays valid
+        tools = base_tools()  # always there, so the brain's cached work stays valid
         # Roblox Studio's tools are big, so they only come along when the chat is about Roblox.
         if self.roblox and self.roblox.status == "connected" and any(k in topic.lower() for k in ROBLOX_WORDS):
             tools += self.roblox.tools
@@ -334,9 +340,9 @@ class Brain:
         Drops the oldest messages first, then Roblox tools. Returns (history, tools)."""
         budget = int(self.settings.get("context", 8192)) - REPLY_ROOM
         fixed = estimate_tokens(system) + estimate_tokens(json.dumps(tools))
-        if fixed > budget * 0.7 and len(tools) > len(MEMORY_TOOLS) + 1:
+        if fixed > budget * 0.7 and len(tools) > len(base_tools()):
             log.warning("Tools too big (%d tokens), leaving Roblox tools out", fixed)
-            tools = list(MEMORY_TOOLS) + [mathtool.TOOL]
+            tools = base_tools()
             fixed = estimate_tokens(system) + estimate_tokens(json.dumps(tools))
         kept = list(history)
         while len(kept) > 1 and fixed + sum(estimate_tokens(m["content"]) for m in kept) > budget:
@@ -362,6 +368,10 @@ class Brain:
                 text = mathtool.run(args)
                 log.info("math %s -> %s", args, text)
                 return text
+            if name == "web_search":
+                text = web.lookup(str(args.get("query", "")), limit=2000)
+                log.info("web search %r -> %d characters", args.get("query"), len(text))
+                return text[:MAX_TOOL_OUTPUT]
             text = self.roblox.call(name, args) if self.roblox else "ERROR: unknown tool"
         except Exception as e:
             text = f"ERROR: {e}"
@@ -380,7 +390,7 @@ class Brain:
         user_repeated = bool(before) and repeats.same_message(text, before)
         topic = recent + " " + text
         mode = self.settings.get("mode") or ("fast" if self.settings.get("fast_mode") else "auto")
-        way = router.route(text, mode, recent, voice)
+        way = router.route(text, mode, recent, voice, pictures=sum(a["kind"] == "image" for a in attached) + bool(image))
         self.last_route = way
         log.info("%s", way)
         self.on_route(way)
@@ -409,6 +419,17 @@ class Brain:
                              "; ".join(f"{q} → {a}" for q, a in done) + ")")
         if way.note:
             notes.append(way.note)
+        if way.search:  # patch, meta, lineups…: things that change get looked up first
+            self.on_tool("web_search")
+            usage.record(tool="web_search")
+            try:
+                found = web.lookup(way.search, limit=1200 if self.on_cpu else 2500)
+            except Exception as e:
+                found = f"(the web search didn't work: {e})"
+            log.info("Looked up %r (%d characters)", way.search, len(found))
+            notes.append("(Looked this up on the web just now. Use it for anything current, say briefly that you "
+                         "looked it up, and give the links when I asked for lineups or videos. If it doesn't answer "
+                         "my question, say so:\n" + found + ")")
         if user_repeated and way.kind not in ("live", "math", "code", "roblox"):
             notes.append(repeats.USER_REPEATED)
         if voice:

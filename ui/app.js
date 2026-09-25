@@ -236,6 +236,7 @@ window.onTool = (name) => {
   if (name === 'remember') { addNote('🧠 saved to memory'); return; }
   if (name === 'forget') { addNote('🧠 forgot something'); return; }
   if (name === 'math') { setState('working', 'calculating…'); return; }
+  if (name === 'web_search') { setState('working', 'looking it up… 🔎'); return; }
   setState('working', 'working in Roblox Studio…');
 };
 
@@ -1258,6 +1259,7 @@ async function openSettings() {
   $('#set-mic').innerHTML = '<option value="">Windows default</option>' +
     s.mics.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
   $('#set-mic').value = s.mic == null ? '' : String(s.mic);
+  $('#hotkey-hint').textContent = s.voice_hotkey ? `🎮 ${s.voice_hotkey} starts or ends voice chat from anywhere, even in a game` : '';
   $('#set-roblox').checked = !!s.roblox_studio;
   $('#set-brain').value = s.brain_size || 'smart';
   $('#set-note').textContent = '';

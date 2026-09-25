@@ -77,6 +77,8 @@ VALORANT = [
     (["wsp coach", "wsp coach", "I do need a coach"], lambda r: not re.search(r"no fluff|i'?ll tell you", r.lower()),
      "same message twice: no repeat, no pitch"),
     (["I play Yoru", "what should I work on?", "ok what else?"], lambda r: True, "keeps adding new things"),
+    (["why did we lose? Bind, 6-13, I was Jett, 9/17/3, I died first in 8 rounds"],
+     lambda r: re.search(r"first|trade|entry|util", r.lower()) is not None and words(r) >= 40, "match review like a coach"),
     (["What should I buy with 2400 credits if my team is forcing?"],
      lambda r: re.search(r"spectre|stinger|bulldog|sheriff|marshal|judge|ghost|shield|armor|armour", r.lower()) is not None, "buy advice"),
 ]

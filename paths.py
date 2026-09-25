@@ -26,6 +26,7 @@ DEFAULT_SETTINGS = {
     "brain_size": "smart",
     "whisper_model": "distil-small.en",
     "roblox_studio": False,
+    "voice_hotkey": "ctrl+alt+v",
     "roblox_command": ["cmd.exe", "/c", "cd /d %LOCALAPPDATA%\\Roblox && .\\mcp.bat"],
 }
 

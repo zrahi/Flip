@@ -25,14 +25,14 @@ def selftest(out_path):
     """Used by the build: checks that everything Flip needs made it into the .exe."""
     lines = []
     for mod in ("webview", "clr", "openai", "mcp", "mcp.client.stdio", "faster_whisper", "ctranslate2", "onnxruntime", "numpy",
-                "sounddevice", "edge_tts", "kokoro_onnx", "pystray", "PIL", "brain", "engine", "voice", "store", "storage", "updater", "screen", "autotest", "router", "knowledge", "mathtool", "usage", "sympy", "attachments", "pypdf", "playtest", "repeats", "generate", "gradio_client"):
+                "sounddevice", "edge_tts", "kokoro_onnx", "pystray", "PIL", "brain", "engine", "voice", "store", "storage", "updater", "screen", "autotest", "router", "knowledge", "mathtool", "usage", "sympy", "attachments", "pypdf", "playtest", "repeats", "generate", "gradio_client", "web", "livedata", "hotkey"):
         try:
             __import__(mod)
             lines.append(f"ok {mod}")
         except BaseException as e:  # sounddevice raises OSError when there's no audio device, that's fine
             lines.append(f"{'ok' if mod == 'sounddevice' and isinstance(e, OSError) else 'FAIL'} {mod}: {e!r}")
     for f in ("ui/index.html", "ui/pet.html", "ui/app.js", "ui/desk.js", "ui/pet.js", "ui/pet.css",
-              "ui/style.css", "personality.txt", "flip.ico", "knowledge/valorant.md", "knowledge/roblox.md", "ui/vendor/katex/katex.min.js", "version.txt"):
+              "ui/style.css", "personality.txt", "flip.ico", "knowledge/valorant.md", "knowledge/valorant-strats.md", "knowledge/roblox.md", "ui/vendor/katex/katex.min.js", "version.txt"):
         lines.append(f"{'ok' if (RES / f).exists() else 'FAIL'} file {f}")
     import faster_whisper
     assets = os.path.join(os.path.dirname(faster_whisper.__file__), "assets")
@@ -635,6 +635,8 @@ class Api:
         info = {k: self._settings.get(k) for k in ("name", "voice", "voice_style", "talk_speed", "mic", "roblox_studio",
                                                    "brain_size")}
         info["voices"] = VOICES
+        import hotkey
+        info["voice_hotkey"] = hotkey.pretty(self._settings.get("voice_hotkey") or "") if sys.platform == "win32" else ""
         try:
             info["mics"] = list_mics()
         except Exception:
@@ -915,6 +917,9 @@ class Api:
         threading.Thread(target=dark_title_bar, args=(self._main,), daemon=True).start()
         threading.Thread(target=allow_mic, args=(self._main,), daemon=True).start()
         threading.Thread(target=storage.tidy_on_start, daemon=True).start()
+        threading.Thread(target=self._keep_valorant_current, daemon=True).start()
+        import hotkey
+        hotkey.start(self._settings.get("voice_hotkey", "ctrl+alt+v"), self.pet_voice)  # voice calls from inside a game
         self._engine.start()
         threading.Thread(target=self._voice.preload, daemon=True).start()
         self._start_tray()
@@ -925,6 +930,17 @@ class Api:
         if os.environ.get("FLIP_AUTOTEST"):  # used by the build: clicks through the whole app
             import autotest
             threading.Thread(target=autotest.run, args=(self,), daemon=True).start()
+
+    def _keep_valorant_current(self):
+        """Current agents, maps, guns and patch notes into his notes: now, then every few hours (livedata only
+        downloads again once a day, or when the game's version changed)."""
+        import knowledge
+        import livedata
+
+        while not self._quitting:
+            if livedata.refresh():
+                self._brain.knowledge = knowledge.load()
+            time.sleep(6 * 3600)
 
     def _screenshot(self):
         try:

@@ -97,6 +97,9 @@ POSITION = re.compile(r"\b(one|two|three|four|five|\d)\s+(a|b|c|mid|heaven|main|
 STRONG_LIVE = re.compile(r"\b\d\s*(v|vs)\s*\d\b|\bplanted\b|\bspike (down|planted)\b|\blast (guy|one|enemy)\b|"
                          r"\bflank(ing|ed)?\b|\b\d(\.\d)?\s*k\b|\b\d{3,4}\s*(credits|creds|cred)\b|\bdefusing\b|"
                          r"\b(keeps?|they'?re|enemy|enemies) (push|pushing|rushing|peeking|holding)")
+# asking to learn something, not reporting the round ("sova lineups for ascent a site")
+NOT_LIVE = re.compile(r"\b(lineups?|line ups?|setups?|strats?|strategy|guide|tips?|explain|teach|learn|tutorial|"
+                      r"practice|review|meta|tier list|patch)\b")
 QUESTION = re.compile(r"^(how|why|explain|what|whats|what's|which|where|when|who|any|is there|best|good|can you|"
                       r"could you|tell me|teach|give me|tips|help me understand|is it|should i learn|compare)\b")
 
@@ -105,7 +108,7 @@ def is_live(text, recent_valorant):
     """A quick mid-match update like "2 A, one heaven" or "Lotus, Phoenix, attack, 3.4k"."""
     t = text.lower().strip()
     words = len(t.split())
-    if words > 16 or (QUESTION.search(t) and words > 4):
+    if words > 16 or (QUESTION.search(t) and words > 4) or NOT_LIVE.search(t):
         return False
     strong = bool(STRONG_LIVE.search(t) or POSITION.search(t))
     setup = _has(MAPS, t) + _has(AGENTS, t) + bool(re.search(r"\b(atk|def|attack|defense|defence|attacking|defending)\b", t))
@@ -122,6 +125,31 @@ def word_problem(text):
     numbers = len(re.findall(r"\d+(?:\.\d+)?|\b(?:two|three|four|five|six|seven|eight|nine|ten|twice|half)\b", text, re.I))
     asks = re.search(r"\?|\b(how (long|many|much|far|fast)|what (is|was|will|total|time|percent)|find|calculate)\b", text, re.I)
     return numbers >= 2 and len(text) > 80 and bool(asks) and len(WORD_PROBLEM.findall(text)) >= 2
+
+
+# ---------- things to look up, and match reviews ----------
+
+# Things that change with patches or that his notes can't hold: look them up before answering.
+FRESH = re.compile(r"\b(patch|patches|patch notes|meta|nerf|nerfs|nerfed|buff|buffs|buffed|new agent|newest|latest|"
+                   r"current|currently|right now|this (act|episode|season|patch|year)|tier ?list|vct|champions|"
+                   r"masters|pros? (play|plays|use|uses|run|runs|pick|picks|do)|pro (players?|teams?|comps?|play)|"
+                   r"lineups?|line ups?|one ?ways?|setups? for)\b")
+LOOKUP = re.compile(r"^\W*(?:(?:hey|yo|pls|please|flip|bro|can you|could you)\W+)*(?:search|look up|google)\b\s*"
+                    r"(?:the web|online|the internet)?\s*(?:for)?\s*(.+)", re.I)
+REVIEW = re.compile(r"\b(review|break ?down|breakdown|analy[sz]e|rate|grade|critique|roast|judge)\b.{0,30}\b(game|match|"
+                    r"games|matches|round|rounds|stats|scoreboard|performance|gameplay|vod|play|this)\b|"
+                    r"\bwhat went wrong\b|\bwhy (did )?(i|we) (lose|lost|throw|threw|choke|choked)\b|"
+                    r"\bhow did (i|we) (do|play)\b|\bhow was my (game|match)\b|"
+                    r"\bwhere (did )?(i|we) (go wrong|mess up|messed up)\b")
+REVIEW_NOTE = ("(Match review: go over my game like a real coach would. Use only what's in the picture or what I told "
+               "you (map, agent, score, K/D/A, ACS, ADR, first bloods/deaths, plants, econ). Format:\n"
+               "**Verdict:** one honest line.\n"
+               "**What lost rounds:** the 2-3 biggest problems, each with its evidence (a stat or what I said) and "
+               "the exact fix.\n"
+               "**What went well:** one thing to keep doing.\n"
+               "**Next game:** one focus and one drill.\n"
+               "Don't invent numbers you can't see; if something's unreadable or missing, ask for it in one line at "
+               "the end. Save my main weakness with the remember tool.)")
 
 
 # ---------- making pictures and videos ----------
@@ -214,13 +242,14 @@ class Route:
         self.temperature = 0.7
         self.think = False
         self.status = ""             # what the window shows while he works
+        self.search = ""             # look this up on the web first (patch, meta, lineups…)
 
     def __repr__(self):
         return f"Route({self.kind}, tags={sorted(self.tags)}, math={self.math_tool}, max={self.max_tokens}, think={self.think})"
 
 
-def route(text, mode="auto", recent="", voice=False):
-    """recent: the last few messages of the chat (for follow-ups like "and B?")."""
+def route(text, mode="auto", recent="", voice=False, pictures=0):
+    """recent: the last few messages of the chat (for follow-ups like "and B?"). pictures: how many came with it."""
     mode = mode if mode in MODES else "auto"
     t = text.lower()
     r = Route()
@@ -245,6 +274,20 @@ def route(text, mode="auto", recent="", voice=False):
         r.max_tokens = 80
         notes.append("(Just small talk: reply like a friend would, in one short natural line. No pitch about what "
                      "you can do.)")
+
+    asked = LOOKUP.match(text)
+    if asked:
+        r.search = asked.group(1).strip(" ?!.")[:150]
+    elif val and FRESH.search(t) and not is_live(text, recent_val or mode == "valorant"):
+        r.search = (text if "valorant" in t or "valo" in t else "valorant " + text)[:150]
+
+    if not chit and REVIEW.search(t) and (val or pictures or recent_val) and not code:
+        # "what went wrong?", "review my game" + a scoreboard: a real breakdown, not a quick answer
+        r.kind = "review"
+        r.tags |= {"valorant", "review"}
+        r.temperature = 0.5
+        notes.append(REVIEW_NOTE)
+        val = math_q = False
 
     if val and not (math_q and mode != "valorant" and not is_valorant(t)):
         r.tags.add("valorant")
