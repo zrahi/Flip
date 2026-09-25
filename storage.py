@@ -67,9 +67,11 @@ def report():
         items.append({"what": "ears (speech-to-text)", "bytes": speech, "in_use": True})
     if (DATA / "voice").exists():
         items.append({"what": "his voice", "bytes": _size(DATA / "voice"), "in_use": True})
-    leftovers = sum(_size(f) for f in _leftovers())
+    leftovers = sum(_size(f) for f in _leftovers() + _browser_leftovers())
     if leftovers:
-        items.append({"what": "unfinished downloads + old logs", "bytes": leftovers, "in_use": False})
+        items.append({"what": "caches, leftovers + old logs", "bytes": leftovers, "in_use": False})
+    if (DATA / "media").exists():
+        items.append({"what": "pictures, videos + files in chats", "bytes": _size(DATA / "media"), "in_use": True})
     chats = _size(DATA / "accounts") + _size(DATA / "accounts.json")
     items.append({"what": "your chats, memory + accounts", "bytes": chats, "in_use": True})
     items.sort(key=lambda i: i["bytes"], reverse=True)
@@ -92,10 +94,44 @@ def _old_temp_copies():
     return found
 
 
+def _browser_leftovers(claim=False):
+    """Older versions gave the chat window's browser (WebView2) a fresh temp folder every start, deleted
+    only when Flip closed cleanly: after a crash, an update or a hard shutdown it stayed (often 50-200 MB
+    each). Now it lives in Flip's folder (see app.main). claim: rename each first, since Windows won't
+    rename a folder a running app still has open, so one that's in use (another app's) is left alone."""
+    import tempfile
+
+    found = []
+    for d in Path(tempfile.gettempdir()).glob("tmp*"):
+        try:
+            if not (d / "EBWebView").is_dir():
+                continue
+            if claim and not d.name.endswith("-flipold"):
+                d = d.rename(d.with_name(d.name + "-flipold"))
+            found.append(d)
+        except OSError:
+            pass  # in use
+    return found
+
+
+def _remove_browser_leftovers():
+    for d in _browser_leftovers(claim=True):
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _old_speech_models():
+    """Speech-to-text models older versions used (the current ones are kept by voice.py)."""
+    from voice import BACKUP_EARS, CAPTION_EARS, EARS, SPEECH_MODELS
+
+    return [DATA / "speech" / n for n in SPEECH_MODELS
+            if n not in (EARS, BACKUP_EARS, CAPTION_EARS) and (DATA / "speech" / n).is_dir()]
+
+
 def _leftovers():
     found = (list(DATA.glob("*.part")) + list(DATA.glob("*.zip")) + list((DATA / "models").glob("*.part"))
-             + list((DATA / "update").glob("*")) + _old_temp_copies())
-    for log_name in ("brain.log",):
+             + list((DATA / "update").glob("*")) + list(DATA.glob("playtest-*.json")) + list((DATA / "tmp").glob("*"))
+             + _old_temp_copies() + _old_speech_models())
+    for log_name in ("brain.log", "flip.log"):
         f = DATA / log_name
         if f.exists() and f.stat().st_size > 5_000_000:
             found.append(f)
@@ -123,6 +159,7 @@ def tidy_on_start():
             shutil.rmtree(d, ignore_errors=True)
         for f in (DATA / "update").glob("*"):
             f.unlink(missing_ok=True)
+        _remove_browser_leftovers()
     except Exception:
         log.exception("Tidy-up failed")
 
@@ -153,6 +190,7 @@ def clean_up():
             if kind != running["kind"]:
                 shutil.rmtree(folder, ignore_errors=True)
     _remove_leftovers()
+    _remove_browser_leftovers()
     for d in _old_speech_dirs():
         shutil.rmtree(d, ignore_errors=True)
     freed = round(max(0.0, before - report()["total_gb"]), 2)
@@ -165,7 +203,8 @@ def delete_everything(delete_app):
     if sys.platform != "win32":
         shutil.rmtree(DATA, ignore_errors=True)
         return
-    targets = [f'rmdir /s /q "{DATA}"'] + [f'rmdir /s /q "{d}"' for d in _old_speech_dirs() + _old_temp_copies()]
+    old = _old_speech_dirs() + _old_temp_copies() + _browser_leftovers(claim=True)
+    targets = [f'rmdir /s /q "{DATA}"'] + [f'rmdir /s /q "{d}"' for d in old]
     if delete_app and getattr(sys, "frozen", False):
         uninstaller = Path(sys.executable).parent / "unins000.exe"
         if uninstaller.exists():  # installed with FlipSetup: use the real uninstaller

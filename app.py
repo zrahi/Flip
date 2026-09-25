@@ -875,7 +875,9 @@ def main():
     window.events.closing += api._on_main_closing
     api._main = window
     log.info("Starting %s", settings["name"])
-    webview.start(api._startup)
+    # The window's browser keeps its files in Flip's folder: by default it made a new temp folder every start,
+    # and those piled up whenever Flip didn't close cleanly (see storage._browser_leftovers).
+    webview.start(api._startup, storage_path=str(DATA / "webview"))
 
 
 if __name__ == "__main__":

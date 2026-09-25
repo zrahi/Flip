@@ -1281,7 +1281,7 @@ function renderStorage(r) {
     row.querySelector('.gb').textContent = it.gb >= 0.1 ? `${it.gb} GB` : '< 0.1 GB';
     list.appendChild(row);
   }
-  $('#clean-btn').textContent = r.freeable_gb > 0 ? `🧹 Clean up (frees ${r.freeable_gb} GB)` : '🧹 Clean up';
+  $('#clean-btn').textContent = r.freeable_gb > 0 ? `🧹 Clear caches (frees ${r.freeable_gb} GB)` : '🧹 Clear caches';
 }
 
 $('#clean-btn').addEventListener('click', async () => {
@@ -1295,7 +1295,7 @@ $('#clean-btn').addEventListener('click', async () => {
 
 $('#delete-all').addEventListener('click', async () => {
   const app = $('#del-app').checked;
-  if (!confirm(`Delete ALL of Flip's stuff on this PC?\n\nHis brains, every account, profile, chat and memory${app ? ', and Flip.exe itself' : ''}. This can't be undone.`)) return;
+  if (!confirm(`Remove ALL of Flip's stuff from this PC?\n\nHis brains, voice and ears, caches, every account, profile, chat, picture and memory${app ? ', and the app itself' : ''}. This can't be undone.`)) return;
   if (!confirm('Last chance: really delete everything? 😢')) return;
   setState('sleeping', 'bye bye 👋');
   await api.delete_everything(app);

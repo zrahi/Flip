@@ -98,10 +98,23 @@ def test_storage_cleanup_keeps_what_is_in_use():
     (DATA / "llama-cuda-0.zip").write_bytes(b"x" * 200)  # unfinished download
     (DATA / "running.json").write_text(json.dumps({"kind": "cuda", "model": "small.gguf"}))
 
+    import tempfile
+    temp = Path(tempfile.gettempdir())
+    (temp / "tmpflipleft" / "EBWebView").mkdir(parents=True, exist_ok=True)  # an old run's browser folder
+    ((temp / "tmpflipleft" / "EBWebView") / "cache").write_bytes(b"x" * 700)
+    (temp / "tmpnotbrowser").mkdir(exist_ok=True)                            # someone else's temp folder
+    for name in ("small.en", "distil-small.en"):                              # an old and the current speech model
+        (DATA / "speech" / name).mkdir(parents=True, exist_ok=True)
+        (DATA / "speech" / name / "model.bin").write_bytes(b"x" * 300)
+
     r = storage.report()
     assert any(i["what"] == "brain: Big" and not i["in_use"] for i in r["items"])
     assert any(i["what"] == "brain: Small" and i["in_use"] for i in r["items"])
+    assert any(i["what"].startswith("caches") and not i["in_use"] for i in r["items"])
     storage.clean_up()
+    assert not list(temp.glob("tmpflipleft*")) and (temp / "tmpnotbrowser").is_dir()
+    assert not (DATA / "speech" / "small.en").exists() and (DATA / "speech" / "distil-small.en").exists()
+    (temp / "tmpnotbrowser").rmdir()
     assert not (MODEL_DIR / "big.gguf").exists() and (MODEL_DIR / "small.gguf").exists()
     assert json.loads((MODEL_DIR / "models.json").read_text()) == {"org/Small-GGUF": "small.gguf"}
     assert not LLAMA_DIRS["vulkan"].exists() and LLAMA_DIRS["cuda"].exists()
