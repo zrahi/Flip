@@ -130,6 +130,7 @@ jobs:
           if (-not $results) { $results = "NO RESULTS`n" + ((Get-Content "$env:FLIP_HOME\flip.log" -Tail 40) -join "`n") }
           Write-Output $results
           ($results -split "`n") | Where-Object { $_ -match '^(PASS|FAIL|NO)' } | ForEach-Object { Write-Output "::notice title=App test::$_" }
+          ($results -split "`n") | Where-Object { $_ -match '^WARN' } | ForEach-Object { Write-Output "::warning title=App test::$_" }
           New-Item -ItemType Directory -Force shots | Out-Null
           Copy-Item "$env:FLIP_AUTOTEST\*" shots -ErrorAction SilentlyContinue
           Copy-Item "$env:FLIP_HOME\flip.log" shots\flip-log.txt -ErrorAction SilentlyContinue
@@ -155,6 +156,7 @@ jobs:
           Write-Output "::notice title=Uninstall::removed cleanly"
 
       - name: Publish release
+        if: github.ref == 'refs/heads/main'  # a run on another branch tests everything but doesn't release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh

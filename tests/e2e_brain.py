@@ -51,6 +51,12 @@ for msg in ("yo what's up bro", "could you stop saying the same thing every time
     print("REPLY VOICE:", reply)
     assert not verdict(reply, said), f"repeated itself: {reply!r} after {said!r}"
     said.append(reply)
+said = []
+for msg in ("wsp coach", "wsp coach", "I play Yoru", "I do hear a coach."):  # the chat from the user's screenshots
+    reply, _, _ = brain.chat("e2etext", msg)
+    print("REPLY TEXT:", reply)
+    assert not verdict(reply, said), f"repeated itself: {reply!r} after {said!r}"
+    said.append(reply)
 
 # eyes: a picture with a big red square on white; he has to say it's red
 from PIL import Image, ImageDraw  # noqa: E402

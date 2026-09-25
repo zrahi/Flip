@@ -50,13 +50,14 @@ def run(api):
         except Exception:
             log.exception("screenshot failed")
 
-    def step(name, fn):
+    def step(name, fn, soft=False):
+        """soft: depends on a free online service with daily limits; a miss is a warning, not a failure."""
         started = time.time()
         try:
             detail = fn() or ""
             results.append({"step": name, "ok": True, "detail": str(detail)[:300], "secs": round(time.time() - started, 1)})
         except Exception as e:
-            results.append({"step": name, "ok": False, "detail": f"{e}\n{traceback.format_exc()[-800:]}",
+            results.append({"step": name, "ok": soft, "warn": soft, "detail": f"{e}\n{traceback.format_exc()[-800:]}",
                             "secs": round(time.time() - started, 1)})
         shot(name.replace(" ", "-"))
         (out / "results.json").write_text(json.dumps(results, indent=1))
@@ -287,6 +288,93 @@ def run(api):
         return f"{reply!r} ({n} words)"
     step("valorant: live callouts", live_coach)
 
+    def new_chat_now():
+        call("newChat()")
+        wait_for("!document.body.classList.contains('chatting')", 10)
+
+    def no_repeats():
+        from repeats import verdict
+
+        new_chat_now()
+        said = []
+        for msg in ("wsp coach", "wsp coach", "I play Yoru", "I do hear a coach."):  # the chat from the screenshots
+            reply = chat(msg)
+            why = verdict(reply, said)
+            if why:
+                raise Failed(f"repeated itself ({why}): {reply!r} after {said!r}")
+            said.append(reply)
+        return " | ".join(r[:70] for r in said)
+    step("no repeats (wsp coach twice…)", no_repeats)
+
+    def review():
+        reply = chat("why did we lose? Bind, 6-13, I was Jett, 9/17/3, I died first in 8 rounds")
+        way = api._brain.last_route
+        if way.kind != "review":
+            raise Failed(f"not reviewed like a coach: {way}")
+        if len(reply.split()) < 40:
+            raise Failed(f"too short for a review: {reply!r}")
+        return reply[:250]
+    step("valorant: match review", review)
+
+    def live_data():
+        import knowledge
+        import livedata
+
+        if not livedata.refresh(force=True):
+            raise Failed("couldn't download the current agents, maps and guns")
+        text = livedata.NOTES.read_text(encoding="utf-8")
+        agents, maps = text.count("current kit"), text.count("callouts (current)")
+        if agents < 20 or maps < 7:
+            raise Failed(f"only {agents} agents and {maps} maps in the live notes")
+        api._brain.knowledge = knowledge.load()
+        return f"{agents} agents, {maps} maps, patch notes: {'## Patch notes' in text}"
+    step("valorant: live game data", live_data)
+
+    def web_lookup():
+        import web
+
+        reply = chat("what's the current meta in valorant right now?")
+        way = api._brain.last_route
+        if not way.search:
+            raise Failed(f"didn't look it up: {way}")
+        found = web.search(way.search)
+        if not found:
+            raise Failed("the web search found nothing")
+        return f"{len(found)} results ({found[0]['url']}); {reply[:150]!r}"
+    step("valorant: looks up the current meta", web_lookup, soft=True)
+
+    def picture():
+        new_chat_now()
+        reply = chat("draw a cute frog wearing a gaming headset", timeout=400)
+        wait_for("(() => { const i = document.querySelector('.made img'); return i && i.naturalWidth > 100; })()", 60,
+                 f"the picture (he said {reply!r})")
+        prompt = js("document.querySelector('.made .p').textContent")
+        return f"{reply!r}: {prompt}"
+    step("makes a picture", picture, soft=True)
+
+    def video():
+        reply = chat("now animate it", timeout=1500)
+        wait_for("(() => { const v = document.querySelector('.made video'); return v && v.readyState >= 1; })()", 60,
+                 f"the video (he said {reply!r})")
+        return reply
+    step("makes a video (free GPUs, daily limit)", video, soft=True)
+
+    def shortcut():
+        from paths import DATA
+
+        if "Voice shortcut ready" not in (DATA / "flip.log").read_text(encoding="utf-8", errors="ignore"):
+            raise Failed("the Ctrl+Alt+V shortcut didn't register")
+        api.pet_voice()
+        wait_for("voiceOn === true", 20, "voice chat starting from the shortcut")
+        api.pet_voice()
+        wait_for("voiceOn === false", 20, "voice chat ending from the shortcut")
+    step("Ctrl+Alt+V voice shortcut", shortcut)
+
+    def clear_caches():
+        r = api.clean_up()
+        return f"freed {r['freed_gb']} GB; {r['report']['total_gb']} GB total"
+    step("clear caches", clear_caches)
+
     def playtest_runs():
         call("openSettings()")
         wait_for("document.querySelector('#playtest-btn') !== null", 10)
@@ -331,7 +419,8 @@ def run(api):
     step("log out and back in", log_out_and_in)
 
     ok = all(r["ok"] for r in results)
-    lines = [f"{'PASS' if r['ok'] else 'FAIL'} {r['step']} ({r['secs']}s): {r['detail']}" for r in results]
+    lines = [f"{'WARN' if r.get('warn') else 'PASS' if r['ok'] else 'FAIL'} {r['step']} ({r['secs']}s): {r['detail']}"
+             for r in results]
     (out / "results.txt").write_text(("ALL PASSED\n" if ok else "SOME FAILED\n") + "\n".join(lines), encoding="utf-8")
     log.info("Autotest done: %s", "all passed" if ok else "some failed")
     api.quit()
