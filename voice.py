@@ -72,12 +72,18 @@ def speakable(text):
     return text
 
 
-CALL_EARS = "base.en"     # speech-to-text for voice calls (fast)
-CAPTION_EARS = "tiny.en"  # live captions while they talk (fastest; the final text uses CALL_EARS)
+# Speech-to-text. distil-small.en is almost as accurate as "small" (it keeps up with fast talkers, where
+# "base" turned quick speech into mush) but decodes several times faster on a processor, and it's one
+# model for calls and click-to-talk instead of two.
+EARS = "distil-small.en"
+BACKUP_EARS = "base.en"   # only on PCs too slow for EARS
+CAPTION_EARS = "tiny.en"  # live captions while they talk (fastest; the final text uses EARS)
+SPEECH_MODELS = (EARS, BACKUP_EARS, CAPTION_EARS, "small.en", "medium.en", "small", "base", "tiny")
+EARS_MAX = 1.6            # s for 3 s of audio: slower than this and calls fall back to BACKUP_EARS
+UNSURE = -0.75            # average log-probability under which a quick transcript gets a careful second look
 
 # When they've stopped talking: answer after END_FAST of quiet if what they said sounds finished
 # ("what should I buy?"), otherwise wait up to END_SLOW ("so what about the…").
-ACCURATE_EARS_MAX = 0.7  # s for 3 s of audio: fast enough to use the accurate model in calls
 END_FAST = 0.25
 END_SLOW = 0.8
 FINAL_AFTER = 3        # frames of quiet (~0.1 s) before the final speech-to-text starts
@@ -212,7 +218,7 @@ class Voice:
         self._say_lock = threading.Lock()
         self.level = 0.0
         self.names = []
-        self.call_ears = CALL_EARS  # may become the bigger model after preload() times it
+        self.call_ears = EARS  # may become BACKUP_EARS after preload() times it on a slow PC
 
     # ---------- ears ----------
 
@@ -221,7 +227,7 @@ class Voice:
         rng = np.random.default_rng(0)
         hiss = rng.normal(0, 0.01, RATE).astype(np.float32)
         took = {}
-        for which in ("tiny", True, False):
+        for which in ("tiny", True):
             try:
                 model = self._get_whisper(which)
                 for _ in range(2):  # the second run is the real speed
@@ -231,19 +237,35 @@ class Voice:
                     took[which] = time.time() - t
             except Exception:
                 log.exception("Couldn't load speech-to-text")
-        # Calls use the bigger, more accurate model (much better with fast talkers) when this PC runs it
-        # quickly enough; otherwise the faster base model.
-        big = self._s.get("whisper_model") or "small.en"
-        if took.get(False, 9) <= ACCURATE_EARS_MAX:
-            self.call_ears = big
+        if took.get(True, 0) > EARS_MAX:  # a really slow PC: understanding late is worse than a few typos
+            self.call_ears = BACKUP_EARS
         log.info("Speech-to-text speed: %s -> calls use %s",
-                 {k if isinstance(k, str) else ("call" if k else "big"): round(v, 2) for k, v in took.items()}, self.call_ears)
+                 {("captions" if k == "tiny" else "calls"): round(v, 2) for k, v in took.items()}, self.call_ears)
+        self._forget_old_ears()
         self.preload_mouth()
 
+    def _ears_for(self, quick):
+        """tiny: live captions. quick: voice calls. Otherwise click-to-talk, where a moment longer is fine."""
+        if quick == "tiny":
+            return CAPTION_EARS
+        return self.call_ears if quick else self._s.get("whisper_model") or EARS
+
+    def _forget_old_ears(self):
+        """Speech models that aren't used anymore (older versions downloaded 3) get deleted."""
+        import shutil
+
+        from paths import DATA
+        keep = {CAPTION_EARS, self.call_ears, self._ears_for(False)}
+        for name in SPEECH_MODELS:
+            folder = DATA / "speech" / name
+            if name not in keep and folder.is_dir():
+                shutil.rmtree(folder, ignore_errors=True)
+                log.info("Deleted the unused %s speech model", name)
+
     def _get_whisper(self, quick=False):
-        """quick (voice calls): the base model, about 3x faster than small with the same results on
-        normal talking. "tiny": live captions. Click-to-talk keeps the more careful small one."""
-        size = CAPTION_EARS if quick == "tiny" else self.call_ears if quick else (self._s.get("whisper_model") or "small.en")
+        """quick (voice calls) and click-to-talk: EARS (or the user's own pick for click-to-talk).
+        "tiny": live captions."""
+        size = self._ears_for(quick)
         with self._whisper_lock:
             if size not in self._whisper:
                 import shutil
@@ -298,23 +320,33 @@ class Voice:
         window = max(4, min(30, int(len(audio) / RATE) + 2)) if quick else 30
         model = self._get_whisper("tiny" if tiny else quick)
 
-        def run(window):
+        def run(window, beam=None):
             extra = {"temperature": 0.0} if quick else {}
             segments, _ = model.transcribe(
-                audio, language="en", beam_size=1 if quick else 5, initial_prompt=", ".join(self.names + [HINT_WORDS]),
+                audio, language="en", beam_size=beam or (1 if quick else 5),
+                initial_prompt=", ".join(self.names + [HINT_WORDS]),
                 condition_on_previous_text=False, without_timestamps=quick, chunk_length=window,
                 vad_filter=trim_silence, vad_parameters={"threshold": 0.3, "min_silence_duration_ms": 600}, **extra,
             )
-            return " ".join(s.text.strip() for s in segments).strip()
+            segments = list(segments)
+            sure = min((s.avg_logprob for s in segments), default=0.0)
+            return " ".join(s.text.strip() for s in segments).strip(), sure
 
         try:
-            text = run(window)
+            text, sure = run(window)
         except Exception:
             if window == 30:
                 raise
             log.exception("Short-window speech-to-text failed, using the full window")
             window = 30
-            text = run(window)
+            text, sure = run(window)
+        if quick and not tiny and text and sure < UNSURE:
+            # Mumbled or said really fast: the quick greedy pass guessed. A careful pass (several guesses
+            # compared) costs a bit more time only on these, and fixes most of them.
+            again, sure2 = run(window, beam=4)
+            log.info("Unsure what I heard (%.2f): %r -> %r (%.2f)", sure, text, again, sure2)
+            if again and sure2 >= sure:
+                text = again
         secs = time.time() - started
         if not tiny:
             self.last_stt = {"audio": round(len(audio) / RATE, 1), "secs": round(secs, 2), "window": window}

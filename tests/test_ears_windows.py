@@ -11,9 +11,10 @@ import voice
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows only")
 
 
-def _say(text, path):
+def _say(text, path, rate=0):
+    """rate: -10 (slow) to 10 (fast); 6+ is a fast talker."""
     ps = (f"Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-          f"$s.SetOutputToWaveFile('{path}'); $s.Speak('{text}'); $s.Dispose()")
+          f"$s.Rate = {rate}; $s.SetOutputToWaveFile('{path}'); $s.Speak('{text}'); $s.Dispose()")
     subprocess.run(["powershell", "-NoProfile", "-Command", ps], check=True)
     with wave.open(str(path)) as w:
         rate, data = w.getframerate(), np.frombuffer(w.readframes(w.getnframes()), dtype="<i2")
@@ -24,7 +25,7 @@ def _say(text, path):
 def test_ears_catch_and_understand_speech(tmp_path):
     speech = _say("hey flip, how do I play Jett on Ascent", tmp_path / "s.wav")
     rng = np.random.default_rng(0)
-    v = voice.Voice({"whisper_model": "small.en"})
+    v = voice.Voice({})  # the default ears
     for gain in (1.0, 0.1):  # normal and a very quiet mic
         noise = lambda sec: rng.normal(0, 0.003, int(16000 * sec)).astype(np.float32)
         audio = np.concatenate([noise(1.5), speech * gain + noise(len(speech) / 16000), noise(1.5)])
@@ -39,3 +40,15 @@ def test_ears_catch_and_understand_speech(tmp_path):
             assert "jett" in text and len(heard) >= 6, (quick, text, heard)
             if quick:
                 assert v.last_stt["window"] < 30, v.last_stt  # the short window really worked
+
+
+def test_ears_keep_up_with_fast_talkers(tmp_path):
+    v = voice.Voice({})
+    words = ["what", "should", "buy", "lotus", "credits", "phantom", "vandal"]
+    for rate in (6, 9):  # fast, and really fast
+        speech = _say("yo what should I buy on Lotus with thirty four hundred credits, phantom or vandal",
+                      tmp_path / f"fast{rate}.wav", rate)
+        text = v.transcribe(speech, quick=True).lower()
+        heard = [w for w in words if w in text]
+        print(rate, "heard:", text, v.last_stt)
+        assert len(heard) >= 6, (rate, text, heard)

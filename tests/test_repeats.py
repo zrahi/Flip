@@ -1,0 +1,127 @@
+import repeats
+import router
+
+# Real replies from a chat where he kept saying the same thing (screenshots from the user).
+S1a = ("WSP? Let's go live.\n\nWhat map are we on?\nI'll tell you the exact spot, util timing + why — no fluff. "
+       "You got this.\n\n*(Just say the map or \"call me.\")*")
+S1b = ("WSP? Let's get real — you're in the right headspace.\n\nWhat map are we on?\nI'll give you *exactly* where "
+       "to stand, when to swing and why. No fluff.\n\n*(Just say the map or \"call me\".)*")
+S2a = ("You're on point — Yoru's all about flash + smokes. Set up early, trade in angles, stay high, peek wide.\n\n"
+       "Let me know the map and I'll call you live. 🎯")
+S2b = ("You're in the right headspace — Yoru's about flash + smoke. Set up smokes early, trade where you're in angle, "
+       "stay high, peek wide.\n\nLet me know the map — I'll call you live when you're ready. 🎯")
+
+
+def feed(watch, pieces):
+    for p in pieces:
+        watch.feed(p)
+    watch.finish()
+    return watch
+
+
+def test_catches_the_reworded_repeats_from_the_screenshots():
+    assert repeats.verdict(S1b, [S1a])
+    assert repeats.verdict(S2b, [S2a])
+    assert repeats.verdict(S2b, [S1a, S1b, S2a])
+    assert repeats.verdict("What map are we on? Tell me and we cook.", [S1a])  # the same question again
+    assert repeats.verdict("gg", ["gg"])
+
+
+def test_different_replies_are_fine():
+    pairs = [
+        ("Smoke Heaven and Tree, flash A main, entry behind the flash and plant default.",
+         "Smoke Market and Stairs, flash B main, clear Boathouse and Lane, then plant safe."),
+        ("Jett's dash is Tailwind: press it, then dash within the window.",
+         "Save this round. Buy Sheriffs next round only if the team forces with you."),
+        ("haha fair, what are you playing tonight?", "gg! that clutch was crazy, how many rounds did you win?"),
+        ("x = 4, because 2x = 8.", "x = 3 or x = 2, it factors as (x-2)(x-3)."),
+        (S1a, "Yoru on Ascent? Fakeout into A main, then Gatecrash behind them while they turn."),
+        (S2a, "Nah you're good, one bad round doesn't mean anything. Reset and play your first contact slower."),
+    ]
+    for old, new in pairs:
+        assert not repeats.verdict(new, [old]), (new, old)
+
+
+def test_code_is_not_compared():
+    old = "Here's the fixed door script:\n```lua Door.lua\nlocal door = script.Parent\nprint(1)\n```"
+    new = "Here's the door script with a slower tween:\n```lua Door.lua\nlocal door = script.Parent\nprint(2)\n```"
+    assert not repeats.verdict(new, [old])
+
+
+def test_watch_stops_a_repeat_before_any_of_it_shows():
+    shown = []
+    w = feed(repeats.Watch([S1a], shown.append), ["WSP", "? ", "Let's ", "get ", "real ", "— you're"])
+    assert w.stopped and shown == [] and "opens like before" in w.why
+    shown = []
+    w = feed(repeats.Watch([S2a], shown.append), ["You're ", "in the right headspace ", "— Yoru's ",
+                                                  "about flash + smoke. ", "Set up"])
+    assert w.stopped and shown == []
+
+
+def test_watch_lets_new_replies_through_word_by_word():
+    shown = []
+    w = feed(repeats.Watch([S1a], shown.append), ["Bet", ", Jett ", "on Ascent. ", "Dash ", "in ", "after ", "the flash."])
+    assert not w.stopped and "".join(shown) == "Bet, Jett on Ascent. Dash in after the flash." == w.text()
+    assert shown[-1] == "the flash."  # after the first sentence, words go out as they come
+    shown = []
+    w = feed(repeats.Watch([], shown.append), ["no ", "earlier ", "replies"])
+    assert shown == ["no ", "earlier ", "replies"]  # nothing to compare with: nothing held back
+
+
+def test_voice_skips_what_he_already_said():
+    shown = []
+    w = feed(repeats.Watch([S2a], shown.append, every=True),
+             ["Nice, Viper on Lotus. ", "Stay high, peek wide. ", "Wall off A main before the hit."])
+    assert "".join(shown) == "Nice, Viper on Lotus. Wall off A main before the hit."
+    shown = []
+    w = feed(repeats.Watch([S2a], shown.append, every=True),
+             ["Okay new idea. ", "Set up early, trade in angles. ", "Let me know the map and I'll call you live. ", "Bye."])
+    assert w.stopped and "".join(shown) == "Okay new idea. "  # kept going: cut off
+
+
+def test_redo_skips_owning_up_to_the_note():
+    shown = []
+    feed(repeats.Watch([S1a], shown.append, redo=True), ["My bad! ", "Jett ", "wants ", "the dash ready."])
+    assert "".join(shown) == "Jett wants the dash ready."
+
+
+def test_stop_button_shows_what_was_held():
+    shown = []
+    w = repeats.Watch([S1a], shown.append)
+    w.feed("one two ")
+    w.flush()
+    assert "".join(shown) == "one two "
+
+
+def test_brain_never_sees_its_old_repeats():
+    h = [{"role": "user", "content": "wsp coach"}, {"role": "assistant", "content": S1a},
+         {"role": "user", "content": "wsp coach"}, {"role": "assistant", "content": S1b},
+         {"role": "user", "content": "yoru"}, {"role": "assistant", "content": S2a},
+         {"role": "user", "content": "I do hear a coach."}, {"role": "assistant", "content": S2b}]
+    kept = repeats.dedupe(h)
+    assert [m["content"] for m in kept if m["role"] == "assistant"] == [S1a, S2a]
+    assert [m["content"] for m in kept if m["role"] == "user"] == ["wsp coach", "wsp coach", "yoru", "I do hear a coach."]
+    assert repeats.dedupe(kept) == kept  # stable: the same chat always reads the same (the brain's cache stays good)
+
+
+def test_user_repeating_and_asking_again():
+    assert repeats.same_message("wsp coach", "Wsp coach!")
+    assert not repeats.same_message("wsp coach", "coach me on jett")
+    assert repeats.asks_again("say that again?") and repeats.asks_again("explain it simpler")
+    assert not repeats.asks_again("how do I hold B on Bind")
+
+
+def test_strip_and_fallback():
+    assert repeats.strip("Fresh idea: play Viper. Stay high, peek wide.", [S2a]) == "Fresh idea: play Viper."
+    used = "you said that already 😭 what's up for real?"
+    for _ in range(20):
+        assert repeats.fallback(True, [used]) != used
+    assert repeats.fallback(False, []) in repeats.FALLBACK["other"]
+
+
+def test_small_talk_gets_no_coaching_pitch():
+    for msg in ("wsp coach", "yo bro", "lol ok", "hey flip!", "thanks man", "WSP"):
+        r = router.route(msg, "valorant")
+        assert r.kind == "chat" and "small talk" in r.note, msg
+    assert router.route("yo what's the best agent for ascent?", "auto").kind == "valorant"
+    assert router.route("coach me on jett", "auto").kind == "valorant"

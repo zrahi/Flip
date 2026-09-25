@@ -24,7 +24,7 @@ def selftest(out_path):
     """Used by the build: checks that everything Flip needs made it into the .exe."""
     lines = []
     for mod in ("webview", "clr", "openai", "mcp", "mcp.client.stdio", "faster_whisper", "ctranslate2", "onnxruntime", "numpy",
-                "sounddevice", "edge_tts", "kokoro_onnx", "pystray", "PIL", "brain", "engine", "voice", "store", "storage", "updater", "screen", "autotest", "router", "knowledge", "mathtool", "usage", "sympy", "attachments", "pypdf", "playtest"):
+                "sounddevice", "edge_tts", "kokoro_onnx", "pystray", "PIL", "brain", "engine", "voice", "store", "storage", "updater", "screen", "autotest", "router", "knowledge", "mathtool", "usage", "sympy", "attachments", "pypdf", "playtest", "repeats"):
         try:
             __import__(mod)
             lines.append(f"ok {mod}")
@@ -292,6 +292,7 @@ class Api:
     # ---------- profiles ----------
 
     def _warm_up(self):
+        self._brain.on_cpu = str(self._engine.status.get("hardware") or "").startswith("CPU")
         if store.current is not None and self._engine.status["state"] == "ready":
             self._brain.warm_up()
 

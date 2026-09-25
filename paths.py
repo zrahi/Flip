@@ -24,7 +24,7 @@ DEFAULT_SETTINGS = {
     "mic": None,
     "fast_mode": False,
     "brain_size": "smart",
-    "whisper_model": "small.en",
+    "whisper_model": "distil-small.en",
     "roblox_studio": False,
     "roblox_command": ["cmd.exe", "/c", "cd /d %LOCALAPPDATA%\\Roblox && .\\mcp.bat"],
 }
@@ -51,7 +51,10 @@ def load_settings():
     if settings["version"] < 4:  # v4: he talks quicker by default (the old "normal" was slow)
         old = float(settings.get("talk_speed") or 1.0)
         settings["talk_speed"] = 1.25 if old <= 1.0 else 1.4 if old <= 1.2 else 1.6
-    settings["version"] = 4
+    if settings["version"] < 5:  # v5: one faster, sharper speech model (distil-small.en) instead of three
+        if settings.get("whisper_model") in (None, "small.en", "base.en"):
+            settings["whisper_model"] = "distil-small.en"
+    settings["version"] = 5
     save_settings(settings)
     return settings
 
@@ -62,7 +65,7 @@ def save_settings(settings):
 
 # Built-in personalities from older versions. If the user's copy still matches one of these (they never
 # edited it), it gets replaced with the current one.
-OLD_PERSONALITIES = {"983d810d0cc7a85b4706fc91bf2319939159c5b6db68aa6a71b26f04f314f527", "43d7f08c483b5c903222d1296314c0d7992e135ce2153128ff6f84ccd40db0b5", "090aa848a946667765efac095a60f25dafae3c31b2a33bf7535e25c21de2e75b", "0b50b6e2053d1440abca7f95a61ff34d86195f3511ba27d238f8a53f9ba9e81c", "5972ed76d7f743c21d5b2aa53f2604ba223b31e514d0757a896a8231d54c4d02", "abef6351e80dae97bb00812ddda0568e0c4c60265c1c0d33ac409472316e8314", "d8461125a4037efd6146eb2656a6e3f58ebe5f2ff4e00009611c478131998f99"}
+OLD_PERSONALITIES = {"983d810d0cc7a85b4706fc91bf2319939159c5b6db68aa6a71b26f04f314f527", "43d7f08c483b5c903222d1296314c0d7992e135ce2153128ff6f84ccd40db0b5", "090aa848a946667765efac095a60f25dafae3c31b2a33bf7535e25c21de2e75b", "0b50b6e2053d1440abca7f95a61ff34d86195f3511ba27d238f8a53f9ba9e81c", "5972ed76d7f743c21d5b2aa53f2604ba223b31e514d0757a896a8231d54c4d02", "abef6351e80dae97bb00812ddda0568e0c4c60265c1c0d33ac409472316e8314", "d8461125a4037efd6146eb2656a6e3f58ebe5f2ff4e00009611c478131998f99", "589da416e89b1c89b9af73214a94f792c8f5c0cd0e7a3fc39bcc1d38398e1853"}
 
 
 def personality_file():

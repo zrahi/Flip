@@ -41,14 +41,15 @@ assert reply.strip()
 reply, _, _ = brain.chat("e2e", "who's my main agent?")
 print("REPLY 2:", reply, brain.last_stats)
 
-# no parroting: three different messages in a voice call must get three different replies
-from brain import _repeats  # noqa: E402
+# no parroting: different messages in a voice call get different replies, and so does the same message twice
+from repeats import verdict  # noqa: E402
 
 said = []
-for msg in ("yo what's up bro", "could you stop saying the same thing every time", "do you see my screen?"):
+for msg in ("yo what's up bro", "could you stop saying the same thing every time", "do you see my screen?",
+            "wsp coach", "wsp coach"):
     reply, _, _ = brain.chat("e2e-repeat", msg, voice=True)
     print("REPLY VOICE:", reply)
-    assert not _repeats(reply, said), f"repeated itself: {reply!r} after {said!r}"
+    assert not verdict(reply, said), f"repeated itself: {reply!r} after {said!r}"
     said.append(reply)
 
 # eyes: a picture with a big red square on white; he has to say it's red

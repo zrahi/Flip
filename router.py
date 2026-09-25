@@ -51,6 +51,23 @@ CHEAT_ASK = re.compile(r"\b(make|give|write|code|create|get|download|send|build|
 CHEAT_OK = re.compile(r"\b(stop|prevent|detect|anti|protect|against|secure|patch|report|ban|block|defend|how do (they|people))\b", re.I)
 
 
+GREETING = (r"yo+|ay+o*|hey+|hi+|hello+|sup|wsp|wsg|wassup|wazzup|what'?s ?(up|good|poppin)|wyd|hbu|hru|"
+            r"how (are|r) (you|u|ya)( doing)?|how'?s it going|gm|gn|good (morning|night|evening|afternoon)|lol+|"
+            r"lmao+|haha+|ok(ay)?|k+|bet|thanks?( you)?|ty|thx|nice|cool|damn|bruh+|fr|real|facts|true|gg|"
+            r"i'?m back|back")
+FILLER = r"bro|bruh|man|dude|coach|flip|buddy|g|fam|homie|twin|gang|my (guy|g|dude|boy)|again"
+
+
+def small_talk(text):
+    """Just a greeting or a reaction ("wsp coach", "yo bro", "lol ok"): nothing to coach or explain."""
+    t = re.sub(r"[^\w\s']", " ", text.lower())
+    if not t.strip() or len(t.split()) > 6:
+        return False
+    t = re.sub(rf"\b({GREETING})\b", " ", t)
+    t = re.sub(rf"\b({FILLER})\b", " ", t)
+    return not t.strip()
+
+
 def _has(words, text):
     return any(re.search(r"(?<![a-z0-9])" + re.escape(w) + r"(?![a-z0-9])", text) for w in words)
 
@@ -138,10 +155,16 @@ def route(text, mode="auto", recent="", voice=False):
         r.max_tokens = 120
         return r
 
-    val = mode == "valorant" or is_valorant(t) or (recent_val and len(t.split()) <= 12)
-    math_q = mode == "math" or looks_like_math(text)
+    # Just "wsp coach" or "lol ok": no coaching note (it made him recite what he'd do instead of saying hi).
+    chit = small_talk(text) and mode not in ("math", "code")
+    val = not chit and (mode == "valorant" or is_valorant(t) or (recent_val and len(t.split()) <= 12))
+    math_q = not chit and (mode == "math" or looks_like_math(text))
     roblox = _has(ROBLOX_WORDS, t) or (_has(ROBLOX_WORDS, recent.lower()) and _has(CODE_WORDS, t))
-    code = mode == "code" or roblox or "```" in text or _has(CODE_WORDS, t)
+    code = not chit and (mode == "code" or roblox or "```" in text or _has(CODE_WORDS, t))
+    if chit:
+        r.max_tokens = 80
+        notes.append("(Just small talk: reply like a friend would, in one short natural line. No pitch about what "
+                     "you can do.)")
 
     if val and not (math_q and mode != "valorant" and not is_valorant(t)):
         r.tags.add("valorant")
@@ -154,9 +177,10 @@ def route(text, mode="auto", recent="", voice=False):
             notes.append("(Live match: reply with 1-3 short imperative callouts, under 20 words total, using the "
                          "match state and the map's real callouts. No greetings, emojis or generic advice.)")
         else:
-            notes.append("(Valorant: answer like a sharp coach who's also your duo: specific positions, util, "
-                         "timings and the why, straight away and confidently. Short unless they ask for detail. "
-                         "Use your notes; don't make up abilities or patch numbers.)")
+            notes.append("(Valorant: help with exactly this, straight away and confidently, like a coach who's also "
+                         "my duo: concrete spots, util and timing for my situation, and why. Don't talk about how "
+                         "you coach, just do it. Short unless I ask for detail. Use your notes; don't make up "
+                         "abilities or patch numbers.)")
     if math_q:
         r.math_tool = True
         if word_problem(text) and not voice and mode != "fast":

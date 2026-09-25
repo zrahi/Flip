@@ -1,0 +1,310 @@
+"""Keeps Flip from saying the same thing twice.
+
+Small brains love to copy their own earlier replies, usually reworded a little:
+    "WSP? Let's go live. What map are we on? … Just say the map or "call me.""
+    "WSP? Let's get real. What map are we on? … Just say the map or "call me"."
+Comparing letters misses that, so replies are compared by what they say:
+- sentences: a sentence counts as said before when (nearly) the same words are in an earlier reply;
+- meaningful words: a reply is a repeat when most of them were all in one earlier reply.
+Code blocks and math are left out: a fixed version of a script is supposed to look like the old one.
+
+Watch checks a reply while it's being written; verdict() judges a finished one.
+"""
+
+import difflib
+import random
+import re
+
+STOP = set("""
+a an the and or but so if then than that this these those to of in on at by for with from up down out over into
+about as is are was were be been being am do does did done have has had having i me my mine you your yours we us
+our they them their he him his she her it its what which who whom whose when where why how all any both each few
+more most other some such no nor not only own same too very can will just should now would could might must shall
+may also there here yeah yes yo ok okay lol im ive id ill youre youve youd youll weve were theyre theyve dont doesnt
+didnt cant wont isnt arent wasnt werent thats whats lets gonna wanna gotta get got like really
+""".split())
+
+CODE = re.compile(r"```.*?(?:```|$)", re.S)
+MATH = re.compile(r"\$\$.+?\$\$|\\\[.+?\\\]|\\\(.+?\\\)|\$[^$\n]+\$", re.S)
+# Where a reply splits into parts that get compared: sentence ends, new lines, dashes and semicolons.
+PARTS = re.compile(r"(?<=[.!?…])[\"'”’)\]*_]*\s+|\n+|\s[—–-]+\s|[—–]|;\s")
+# Where a sentence ends while it streams in (the dash parts are split later, when it's judged).
+END = re.compile(r"[.!?…]+[\"'”’)\]*_]*\s+|\n+")
+# A redo that opens by owning up to the note he got ("my bad", "got it, something new:") instead of just answering.
+ACK = re.compile(r"^\W*(my bad|my fault|oops|sorry|you'?re right|fair( enough| point)?|noted|understood|got it|gotcha|"
+                 r"(ok(ay)?|alright|aight)\W+(here'?s |something |a )*(new|different|fresh))\b|here'?s (something|a) "
+                 r"(new|different|fresh)", re.I)
+# The user asking to hear it again: repeating is the point then.
+AGAIN = re.compile(r"\b(again|repeat|one more time|say (that|it) (again|back)|what did you (just )?say|what was that|"
+                   r"simpler|rephrase|in other words|explain (it|that|this)|recap|summar|tl;?dr|remind me)\b", re.I)
+
+REDO_NOTE = ("(Hold on: that's basically what you already told me earlier in this chat. Say something new instead: "
+             "a different opener, different words and a new point, or ask me one specific thing you haven't asked "
+             "yet. Don't apologize or mention this note.)")
+USER_REPEATED = ("(I sent the same message as last time. Don't answer it the same way again: react to me repeating "
+                 "it, or take the chat somewhere new.)")
+# Last resort when even the redo repeats: short, and never one he already used in this chat.
+FALLBACK = {
+    "repeated": ["you said that already 😭 what's up for real?", "déjà vu 👀 what do you actually need?",
+                 "we're going in circles 😭 hit me with something new", "same message twice, I see you 👀 what's the move?"],
+    "other": ["wait, what do you mean? 👀", "run that back, what exactly do you need?",
+              "say that another way? I don't wanna give you the same answer twice", "hmm, what do you want to work on?"],
+}
+
+
+def _stem(w):
+    if len(w) > 4 and w.endswith("ing"):
+        return w[:-3]
+    if len(w) > 4 and w.endswith(("ed", "ly")):
+        return w[:-2]
+    if len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
+        return w[:-1]
+    return w
+
+
+def _plain(text):
+    return MATH.sub(" ", CODE.sub(" ", text or ""))
+
+
+def _raw_words(text):
+    return re.findall(r"[a-z0-9]+", _plain(text).lower().replace("’", "'").replace("'", ""))
+
+
+def words(text):
+    """The words of a text, lowercase and roughly stemmed ("smokes" → "smoke"), without code or math."""
+    return [_stem(w) for w in _raw_words(text)]
+
+
+def content(text):
+    """The meaningful words (no "the", "you're", "gonna"…)."""
+    return {_stem(w) for w in _raw_words(text) if w not in STOP and len(w) > 1}
+
+
+def sentences(text):
+    """[(words, is_question)] for each part of a text."""
+    out = []
+    for part in PARTS.split(_plain(text)):
+        w = words(part)
+        if w:
+            out.append((w, part.rstrip(" \"'”’)]*_").endswith("?")))
+    return out
+
+
+def _covered(a, b):
+    """How much of a is in b, counting only runs of 2+ words in the same order."""
+    m = difflib.SequenceMatcher(None, a, b, autojunk=False)
+    return sum(bl.size for bl in m.get_matching_blocks() if bl.size >= 2) / len(a)
+
+
+def same(a, b):
+    """Two sentences (word lists) that say the same thing."""
+    if a == b:
+        return True
+    if len(a) < 3 or len(b) < 2:
+        return False
+    return difflib.SequenceMatcher(None, a, b, autojunk=False).ratio() >= 0.75 or (len(a) >= 4 and _covered(a, b) >= 0.8)
+
+
+def _real(w):
+    """A part worth comparing on its own: has actual letters (not "1." from a list)."""
+    return re.search(r"[a-z]{2}", " ".join(w)) is not None
+
+
+def verdict(reply, earlier):
+    """Why this reply repeats one of the earlier ones ("" if it doesn't)."""
+    new = sentences(reply)
+    total = sum(len(w) for w, _ in new)
+    if not total:
+        return ""
+    old = [s for e in earlier for s in sentences(e)]
+    recent_questions = [w for e in earlier[-2:] for w, q in sentences(e) if q]
+    repeated = 0
+    for w, question in new:
+        if len(w) < 3 and not _real(w):
+            continue
+        if any(same(w, o) for o, _ in old):
+            repeated += len(w)
+            if question and len(w) >= 3 and any(same(w, q) for q in recent_questions):
+                return f"asks again: {' '.join(w)}"
+    share = repeated / total
+    if repeated >= 6 and share >= 0.4:
+        return f"{round(share * 100)}% said before"
+    mine = content(reply)
+    for e in earlier:
+        theirs = content(e)
+        if len(mine) >= 6:
+            overlap = len(mine & theirs) / len(mine)
+            if overlap >= (0.6 if len(mine) < 25 else 0.7) or (share >= 0.3 and overlap >= 0.45):
+                return f"{round(overlap * 100)}% the same words"
+        elif total <= 12:
+            w, ew = words(reply), words(e)
+            if w and ew and difflib.SequenceMatcher(None, w, ew, autojunk=False).ratio() >= 0.8:
+                return "same short reply"
+    return ""
+
+
+def asks_again(text):
+    return AGAIN.search(text or "") is not None
+
+
+def same_message(a, b):
+    """The user sent (nearly) the same thing twice in a row."""
+    wa, wb = words(a), words(b)
+    if not wa or not wb:
+        return False
+    return wa == wb or (len(wa) >= 3 and difflib.SequenceMatcher(None, wa, wb, autojunk=False).ratio() >= 0.85)
+
+
+def dedupe(history):
+    """The chat as the brain reads it: replies that repeated an even earlier reply are left out (seeing its
+    own repeats teaches a small brain to keep repeating). A message's fate only depends on the messages
+    before it, so the brain can keep reusing its work on the chat so far."""
+    out, said = [], []
+    for m in history:
+        if m["role"] == "assistant" and isinstance(m["content"], str) and "```" not in m["content"]:
+            if said and verdict(m["content"], said):
+                continue
+            said.append(m["content"])
+        out.append(m)
+    return out
+
+
+def strip(reply, earlier):
+    """The reply without the sentences that were already said (code blocks stay as they are)."""
+    old = [w for e in earlier for w, _ in sentences(e)]
+    pieces = re.split(r"(```.*?(?:```|$))", reply, flags=re.S)
+    kept = []
+    for i, piece in enumerate(pieces):
+        if i % 2:  # a code block
+            kept.append(piece)
+            continue
+        for sentence in re.findall(r"[^.!?…\n]*(?:[.!?…]+[\"'”’)\]*_]*\s*|\n+|$)", piece):
+            parts = [w for w, _ in sentences(sentence)]
+            n = sum(len(w) for w in parts)
+            said = sum(len(w) for w in parts if len(w) >= 3 and any(same(w, o) for o in old))
+            if n and said * 2 >= n:
+                continue
+            kept.append(sentence)
+    return re.sub(r"\n{3,}", "\n\n", "".join(kept)).strip()
+
+
+def fallback(user_repeated, earlier):
+    lines = FALLBACK["repeated" if user_repeated else "other"]
+    fresh = [l for l in lines if not any(same(words(l), words(e)) or words(l) == words(e) for e in earlier)]
+    return random.choice(fresh or lines)
+
+
+def _cut(text):
+    """Where the first finished sentence ends in text that's still streaming in (0 = not yet)."""
+    for m in END.finditer(text):
+        if re.search(r"[^\W\d_]{2}", text[:m.start()]):  # "1." at the start of a list isn't a sentence
+            return m.end()
+    if len(text) > 160:  # one giant sentence: judge it by its start
+        i = text.rfind(" ", 0, 160)
+        return i + 1 if i > 0 else len(text)
+    return 0
+
+
+class Watch:
+    """Watches a reply while it's written and passes on what's fine to show.
+
+    The first sentence is held back until it's complete: if it goes like an earlier reply did, the reply is
+    stopped right there, before anything is shown or said, so it can be redone. In voice calls (every=True)
+    every sentence is checked, since he can't take back what he said: ones he already said are skipped, and
+    if he keeps at it he's stopped. It's also the stop signal for the brain (is_set)."""
+
+    def __init__(self, earlier, emit, every=False, redo=False):
+        self._old = [s for e in earlier for s in sentences(e)]
+        self._openers = [ss[0][0] for ss in (sentences(e) for e in earlier[-3:]) if ss]
+        self._emit = emit
+        self._redo = redo
+        self._held = ""
+        self._lead = ""       # bits with no words (an emoji line) waiting for the first real sentence
+        self._started = not self._old  # nothing to compare with: nothing to hold back
+        self._every = every and bool(self._old)
+        self._skipped = 0
+        self.shown = ""
+        self.stopped = False
+        self.why = ""
+
+    def is_set(self):
+        return self.stopped
+
+    def text(self):
+        return self.shown.strip()
+
+    def feed(self, piece):
+        if self.stopped:
+            return
+        if self._started and not self._every:
+            self._show(piece)
+            return
+        self._held += piece
+        while not self.stopped:
+            cut = _cut(self._held)
+            if not cut:
+                return
+            part, self._held = self._held[:cut], self._held[cut:]
+            self._judge(part)
+            if self._started and not self._every:
+                rest, self._held = self._held, ""
+                if rest:
+                    self._show(rest)
+                return
+
+    def finish(self):
+        """The reply is done: whatever's still held back gets the same checks."""
+        if not self.stopped and self._held:
+            rest, self._held = self._held, ""
+            self._judge(rest)
+        if not self.stopped and self._lead:
+            self._show(self._lead)
+            self._lead = ""
+
+    def flush(self):
+        """The stop button: what he was in the middle of saying still goes out, unchecked."""
+        rest, self._lead, self._held = self._lead + self._held, "", ""
+        if rest and not self.stopped:
+            self._show(rest)
+
+    def _show(self, text):
+        self.shown += text
+        self._emit(text)
+
+    def _stop(self, why):
+        self.stopped, self.why = True, why
+
+    def _judge(self, part):
+        if "```" in part:  # code from here on: nothing to compare
+            self._started, self._every = True, False
+            self._show(self._lead + part)
+            self._lead = ""
+            return
+        parts = sentences(part)
+        if not parts:
+            if self._started:
+                self._show(part)
+            else:
+                self._lead += part
+            return
+        if not self._started:
+            if self._redo and ACK.search(part.strip()) and len(parts[0][0]) <= 8:
+                return  # "my bad, here's something new:" — just skip to the answer
+            first = parts[0][0]
+            if _real(first) and first in self._openers:
+                return self._stop(f"opens like before: {' '.join(first)}")
+            for w, _ in parts:
+                if len(w) >= 3 and any(same(w, o) for o, _ in self._old):
+                    return self._stop(f"said before: {' '.join(w)}")
+            self._started = True
+            self._show(self._lead + part)
+            self._lead = ""
+            return
+        n = sum(len(w) for w, _ in parts)
+        said = sum(len(w) for w, _ in parts if len(w) >= 3 and any(same(w, o) for o, _ in self._old))
+        if said * 2 >= n:
+            self._skipped += 1
+            if self._skipped >= 2:
+                self._stop("kept repeating")
+            return
+        self._show(part)
