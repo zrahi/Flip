@@ -210,7 +210,7 @@ def media_request(text, mode="auto", has_picture=False, last=None):
         return "video", last["prompt"]  # bring the picture he just made to life (the app passes it along)
     follow = FOLLOW.match(low) if last and not ASKING.match(low) and len(low.split()) <= 12 else None
     loose = follow and follow.group(1) in ("more", "less", "with", "without", "add", "remove", "change", "put")
-    if follow and not (loose and len(low.split()) > 6) and (
+    if follow and not (loose and len(low.split()) > 8) and (
             not low.rstrip().endswith("?") or follow.group(1).startswith(("make", "again", "another", "one more", "redo",
                                                                           "try again", "do "))):
         if AGAIN_ONLY.match(low):
