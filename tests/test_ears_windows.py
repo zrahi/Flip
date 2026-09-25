@@ -45,10 +45,12 @@ def test_ears_catch_and_understand_speech(tmp_path):
 def test_ears_keep_up_with_fast_talkers(tmp_path):
     v = voice.Voice({})
     words = ["what", "should", "buy", "lotus", "credits", "phantom", "vandal"]
-    for rate in (6, 9):  # fast, and really fast
+    # rate 6: ~320 words a minute, faster than a fast talker: every word. rate 9: ~450 a minute, faster than
+    # anyone talks: the words that matter.
+    for rate, need in ((6, 7), (9, 4)):
         speech = _say("yo what should I buy on Lotus with thirty four hundred credits, phantom or vandal",
                       tmp_path / f"fast{rate}.wav", rate)
         text = v.transcribe(speech, quick=True).lower()
         heard = [w for w in words if w in text]
         print(rate, "heard:", text, v.last_stt)
-        assert len(heard) >= 6, (rate, text, heard)
+        assert len(heard) >= need and "phantom" in heard and "vandal" in heard, (rate, text, heard)
