@@ -236,6 +236,9 @@ def media_request(text, mode="auto", has_picture=False, last=None):
     return kind, prompt
 
 
+LONGEST = {"code": 2500, "roblox": 2500, "math": 1200, "review": 1000}  # tokens; everything else 800
+
+
 class Route:
     def __init__(self):
         self.kind = "chat"           # chat | valorant | live | math | code | roblox | refuse
@@ -345,7 +348,10 @@ def route(text, mode="auto", recent="", voice=False, pictures=0):
     if voice and r.kind != "live":
         r.max_tokens = min(r.max_tokens or 120, 120)
     if r.think:
-        r.max_tokens = None  # room to work it out
+        r.max_tokens = 3000  # room to work it out
+    # Every reply has an end: a small brain that falls into a loop otherwise writes until its memory is
+    # full (the build saw a 10-minute "what's 59382 × 912?" on a processor).
+    r.max_tokens = r.max_tokens or LONGEST.get(r.kind, 800)
     r.note = "\n\n".join(notes)
     return r
 

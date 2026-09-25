@@ -209,3 +209,9 @@ def test_brain_looks_it_up_before_answering(monkeypatch):
     assert asked and "jett" in asked[0].lower() and used == ["web_search"]
     assert "Looked this up on the web" in Backend.seen and "Jett nerfed" in Backend.seen
     assert "web_search" in Backend.tools
+
+
+def test_every_reply_has_an_end():
+    for msg, mode in [("hi", "auto"), ("what's 59382 × 912?", "auto"), ("write a luau door script", "auto"),
+                      ("how do I play jett?", "auto"), ("why did we lose? 6-13", "valorant"), ("hard problem", "think")]:
+        assert router.route(msg, mode).max_tokens, msg  # a looping small brain can't write forever

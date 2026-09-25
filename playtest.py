@@ -131,13 +131,13 @@ CODE = [
 ]
 
 
-def _run_suite(brain, name, cases, report):
+def _run_suite(brain, name, cases, report, stop=None):
     from repeats import verdict
 
     for i, (msgs, ok, what) in enumerate(cases):
         said = []
         for m in msgs:
-            reply, _, _ = brain.chat(f"playtest-{name}-{i}", m)
+            reply, _, _ = brain.chat(f"playtest-{name}-{i}", m, stop=stop)  # Stop works mid-answer too
             said.append(reply)
         good = bool(ok(said[-1])) and not any(verdict(said[j], said[:j]) for j in range(1, len(said)))
         report(name, what, msgs[-1], said[-1], good)
@@ -154,7 +154,7 @@ def run_all(brain, report, stop=None):
             for case in cases:
                 if stop is not None and stop.is_set():
                     return
-                _run_suite(brain, name, [case], report)
+                _run_suite(brain, name, [case], report, stop)
     finally:
         for c in store.list_chats():
             if c["id"].startswith("playtest-"):

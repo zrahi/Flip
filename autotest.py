@@ -81,7 +81,12 @@ def run(api):
     def chat(text, timeout=600):
         before = js("document.querySelectorAll('.msg.pet').length")
         call(f"send({json.dumps(text)})")
-        wait_for(f"document.querySelectorAll('.msg.pet').length > {before} && busy === false", timeout, "the reply")
+        try:
+            wait_for(f"document.querySelectorAll('.msg.pet').length > {before} && busy === false", timeout, "the reply")
+        except Failed:
+            call("stopReply()")  # don't leave him busy: the next steps would all time out too
+            wait_for("busy === false", 60, "him to stop")
+            raise
         r = json.loads(last_reply())
         if not r.get("text", "").strip() or r.get("error"):
             raise Failed(f"bad reply: {r}")
@@ -263,10 +268,12 @@ def run(api):
         wait_for("mode === 'math'", 20, "math mode")
         tools = []
         api._brain.on_tool = lambda name: (tools.append(name), api._on_tool(name))
-        answer = chat("what's 59382 × 912?")
-        api._brain.on_tool = api._on_tool
-        call("setMode('auto')")
-        wait_for("mode === 'auto'", 20)
+        try:
+            answer = chat("what's 59382 × 912?")
+        finally:  # back to normal even when it fails, so the next steps aren't in math mode
+            api._brain.on_tool = api._on_tool
+            call("setMode('auto')")
+            wait_for("mode === 'auto'", 20)
         if "54156384" not in re.sub(r"[\s,]", "", answer):
             raise Failed(f"wrong math: {answer!r}")
         if "math" not in tools:
@@ -275,6 +282,8 @@ def run(api):
     step("modes: fast + math (calculator)", modes)
 
     def live_coach():
+        call("setMode('auto')")
+        wait_for("mode === 'auto'", 20)
         call("newChat()")
         wait_for("!document.body.classList.contains('chatting')", 10)
         chat("Lotus, Phoenix, attack, 3.4k credits")
