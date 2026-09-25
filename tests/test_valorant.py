@@ -127,7 +127,9 @@ class FakeSite(BaseHTTPRequestHandler):
 
     def do_POST(self):
         self.rfile.read(int(self.headers["Content-Length"]))
-        self._send(RESULTS_HTML.replace("https://www.youtube.com/watch?v=abc", f"http://127.0.0.1:{self.server.server_port}/page"))
+        here = f"http://127.0.0.1:{self.server.server_port}/page"  # (every link local: online, the real site got read)
+        self._send(RESULTS_HTML.replace("https%3A%2F%2Fplayvalorant.com%2Fen-us%2Fnews%2Fgame-updates%2F"
+                                        "valorant-patch-notes-11-06%2F", here).replace("https://www.youtube.com/watch?v=abc", here))
 
     def do_GET(self):
         self._send("<html><head><script>var x=1</script><style>p{}</style></head><body><nav>Menu Home</nav><main>"

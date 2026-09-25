@@ -115,6 +115,8 @@ def test_storage_cleanup_keeps_what_is_in_use():
     assert not list(temp.glob("tmpflipleft*")) and (temp / "tmpnotbrowser").is_dir()
     assert not (DATA / "speech" / "small.en").exists() and (DATA / "speech" / "distil-small.en").exists()
     (temp / "tmpnotbrowser").rmdir()
+    import shutil
+    shutil.rmtree(DATA / "speech")  # (a fake model left here would be loaded by the Windows ears tests)
     assert not (MODEL_DIR / "big.gguf").exists() and (MODEL_DIR / "small.gguf").exists()
     assert json.loads((MODEL_DIR / "models.json").read_text()) == {"org/Small-GGUF": "small.gguf"}
     assert not LLAMA_DIRS["vulkan"].exists() and LLAMA_DIRS["cuda"].exists()

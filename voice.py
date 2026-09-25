@@ -278,7 +278,14 @@ class Voice:
                 if not (folder / "model.bin").exists():
                     # a plain folder: the default download kept a second copy of the model on Windows
                     download_model(size, output_dir=str(folder))
-                self._whisper[size] = WhisperModel(str(folder), device="cpu", compute_type="int8", cpu_threads=_threads())
+                try:
+                    model = WhisperModel(str(folder), device="cpu", compute_type="int8", cpu_threads=_threads())
+                except RuntimeError:  # a broken or cut-off download: get it again instead of staying deaf
+                    log.exception("Speech model %s is broken, downloading it again", size)
+                    shutil.rmtree(folder, ignore_errors=True)
+                    download_model(size, output_dir=str(folder))
+                    model = WhisperModel(str(folder), device="cpu", compute_type="int8", cpu_threads=_threads())
+                self._whisper[size] = model
                 for old in (DATA / "speech").glob("models--*"):  # left over from older versions
                     shutil.rmtree(old, ignore_errors=True)
             return self._whisper[size]
