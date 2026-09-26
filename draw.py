@@ -20,6 +20,7 @@ HOME = DATA / "tmp" / "drawer"
 STEPS = 4
 GUIDANCE = 8.0
 SIZE = 512
+NOISE = 40  # roughness above this is static, not a picture (a real one is well under 20)
 # Always part of the picture's description: modest, and no watermark-like text.
 STYLE = "high quality, detailed, clean digital illustration"
 
@@ -90,6 +91,11 @@ def lcm_step(x, eps, t, t_prev, alphas, noise):
     return np.sqrt(a_prev) * denoised + np.sqrt(1 - a_prev) * noise
 
 
+def roughness(pixels):
+    """How much neighbouring pixels differ on average: a picture is mostly smooth areas, noise isn't."""
+    return float(np.abs(np.diff(pixels.astype(np.float32), axis=1)).mean())
+
+
 def _inputs(compiled):
     return {i.get_any_name(): i for i in compiled.inputs}
 
@@ -150,9 +156,12 @@ def draw(prompt, on_status=lambda s: None, stop=None, seed=None):
                          rng.standard_normal(x.shape).astype(np.float32)).astype(np.float32)
         image = vae({vae.inputs[0]: (x / 0.18215).astype(np.float32)})[vae.outputs[0]]
         pixels = (np.clip(image[0].transpose(1, 2, 0) / 2 + 0.5, 0, 1) * 255).round().astype(np.uint8)
+        rough = roughness(pixels)
+        if rough > NOISE:
+            raise RuntimeError(f"the drawing came out as noise (roughness {rough:.0f})")
         buf = io.BytesIO()
         Image.fromarray(pixels).save(buf, "PNG")
-        log.info("Drew %r on this PC in %.0fs", prompt[:80], time.time() - started)
+        log.info("Drew %r on this PC in %.0fs (roughness %.0f)", prompt[:80], time.time() - started, rough)
         return buf.getvalue()
     finally:
         shutil.rmtree(folder, ignore_errors=True)  # the whole kit goes: nothing stays on the PC

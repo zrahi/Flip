@@ -361,9 +361,10 @@ def run(api):
         from paths import DATA
 
         drew = [l for l in (DATA / "flip.log").read_text(encoding="utf-8", errors="ignore").splitlines()
-                if "on this PC in" in l or "Drawing kit downloaded" in l]
-        if not drew:
-            raise Failed(f"it wasn't drawn on this PC (he said {reply!r})")
+                if "on this PC in" in l or "Drawing kit downloaded" in l or "Couldn't draw" in l]
+        # "Drew …" is only logged for a real picture (draw.py throws away one that came out as noise)
+        if not any("Drew " in l for l in drew):
+            raise Failed(f"it wasn't drawn on this PC (he said {reply!r}; {' / '.join(drew[-2:])})")
         return f"{reply!r}: {prompt} | {' / '.join(l.split('INFO ')[-1] for l in drew[-2:])}"
     step("makes a picture (drawn on this PC)", picture)
 
