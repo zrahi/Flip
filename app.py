@@ -2,6 +2,7 @@
 
 import atexit
 import json
+import random
 import logging
 import os
 import queue
@@ -91,7 +92,12 @@ from updater import Updater  # noqa: E402
 import store  # noqa: E402
 from brain import Brain, NoModelError  # noqa: E402
 from engine import Engine  # noqa: E402
+import voice  # noqa: E402
 from voice import VOICES, Voice, list_mics  # noqa: E402
+
+# When speech-to-text only guessed what they said.
+UNCLEAR_LINES = ["sorry, didn't catch that, say it again?", "wait, what? say that one more time",
+                 "you cut out a bit, say that again?", "didn't get that, one more time?"]
 
 
 def load_skills():
@@ -357,6 +363,10 @@ class Api:
             return {"error": "pick a profile first 👤"}
         # "draw a…" / "make a video of…": made by free online makers, so it works even while the brain loads
         chat_so_far = store.load_chat(chat_id) if chat_id else None
+        if voice and chat_so_far and text and getattr(self, "_unclear", None) == text:
+            self._unclear = None
+            return {"reply": random.choice(UNCLEAR_LINES), "stopped": False, "chat_id": chat_so_far["id"],
+                    "title": chat_so_far["title"], "problems": [], "secs": 0}
         want = router.media_request(text, self._settings.get("mode") or "auto",
                                     any(f.get("kind") == "image" for f in files or []),
                                     generate.last_made(chat_so_far))
@@ -725,6 +735,10 @@ class Api:
 
     def voice_call_start(self):
         def heard(text):
+            # speech-to-text only guessed (noise, a bad mic, mumbling): he asks again instead of answering
+            # something they never said ("Your soft lip hoeing, bro." got a Haven strat)
+            if text and getattr(self._voice, "last_sure", 0) < voice.UNCLEAR:
+                self._unclear = text
             if self._main:
                 self._ui(f"onHeard({json.dumps(text)})")
 

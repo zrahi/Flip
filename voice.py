@@ -81,6 +81,7 @@ CAPTION_EARS = "tiny.en"  # live captions while they talk (fastest; the final te
 SPEECH_MODELS = (EARS, BACKUP_EARS, CAPTION_EARS, "distil-small.en", "medium.en", "small", "base", "tiny")
 EARS_MAX = 1.4            # s for 3 s of audio: slower than this and calls fall back to BACKUP_EARS
 UNSURE = -0.75            # average log-probability under which a quick transcript gets a careful second look
+UNCLEAR = -1.0            # ...and under which, even after that, it's a guess: he asks them to say it again
 
 # When they've stopped talking: answer after END_FAST of quiet if what they said sounds finished
 # ("what should I buy?"), otherwise wait up to END_SLOW ("so what about the…").
@@ -355,12 +356,13 @@ class Voice:
             again, sure2 = run(window, beam=8)
             log.info("Unsure what I heard (%.2f): %r -> %r (%.2f)", sure, text, again, sure2)
             if again and sure2 >= sure:
-                text = again
+                text, sure = again, sure2
         secs = time.time() - started
         if not tiny:
             self.last_stt = {"audio": round(len(audio) / RATE, 1), "secs": round(secs, 2), "window": window}
-        log.info("Heard %.1fs of audio in %.2fs (%s, window %ss)", len(audio) / RATE, secs,
-                 "tiny" if tiny else self.call_ears if quick else "full", window)
+            self.last_sure = sure
+        log.info("Heard %.1fs of audio in %.2fs (%s, window %ss, sure %.2f): %r", len(audio) / RATE, secs,
+                 "tiny" if tiny else self.call_ears if quick else "full", window, sure, text[:120])
         return "" if text.lower().strip(" .!?") in NOISE_WORDS else text
 
     # Click-to-talk: record until stop_listening() is called.
