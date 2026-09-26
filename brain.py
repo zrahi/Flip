@@ -87,6 +87,7 @@ def clean_reply(text):
     # Reasoning models put their thinking in <think> tags; don't show or say it.
     if "</think>" in text:
         text = text.split("</think>")[-1]
+    text = TOOL_TEXT.sub("", text).split("<tool_call>", 1)[0]  # (a call written as text is never shown)
     return text.strip()
 
 
@@ -226,6 +227,9 @@ class LocalBackend:
                             c["args"] += tc.function.arguments or ""
             finally:
                 stream.close()
+            if not calls and "<tool_call>" in text:
+                calls = text_tool_calls(text) if spec else {}
+                text = text.split("<tool_call>", 1)[0]
             if not calls:
                 return clean_reply(shown + text), False
             shown += visible(text)
@@ -278,8 +282,28 @@ def parse_skill(text):
     return {"keywords": [""], "text": text.strip()}
 
 
+TOOL_TEXT = re.compile(r"<tool_call>\s*(\{.*?\})\s*(?:</tool_call>|$)", re.S)
+
+
+def text_tool_calls(text):
+    """Tool calls a small brain wrote out as text ("<tool_call>{"name": "web_search", …}</tool_call>")
+    instead of as real calls: {index: {"id", "name", "args"}}."""
+    calls = {}
+    for i, m in enumerate(TOOL_TEXT.finditer(text)):
+        try:
+            call = json.loads(m.group(1))
+        except ValueError:
+            continue
+        if isinstance(call, dict) and call.get("name"):
+            calls[i] = {"id": f"text_call_{i}", "name": call["name"], "args": json.dumps(call.get("arguments") or {})}
+    return calls
+
+
 def visible(text):
-    """The part of a streamed reply that's okay to show (hides <think>…</think> blocks)."""
+    """The part of a streamed reply that's okay to show (hides <think>…</think> blocks and tool calls
+    written out as text)."""
+    if "<tool_call>" in text:
+        text = text.split("<tool_call>", 1)[0]
     if "<think>" in text:
         before, _, rest = text.partition("<think>")
         return before + (rest.split("</think>", 1)[1] if "</think>" in rest else "")

@@ -367,3 +367,32 @@ def test_small_talk_filler_isnt_a_repeat():
     said = ["I'm on Valorant right now, just chilling in the lobby. You're doing good today—how's it going?"]
     assert not repeats.too_similar("I'm in coach mode, you know? Check out what's going on in Valorant. You got a good "
                                    "one today—how's that going?", said)  # (build 51: only "valorant, good, today")
+
+
+def test_a_tool_call_written_as_text_is_run_not_shown():
+    import types
+
+    from brain import LocalBackend, clean_reply, visible
+
+    leaked = '<tool_call>\n{"name": "web_search", "arguments": {"query": "roblox villain"}}\n</tool_call>'  # (build 52)
+    assert visible("Here you go " + leaked) == "Here you go " and clean_reply(leaked) == ""
+    b = LocalBackend.__new__(LocalBackend)
+    b.model, b.context = "x", 8192
+    ran = []
+
+    class Stream(list):
+        def close(self):
+            pass
+
+    def create(**kw):
+        text = leaked if not ran else "Ahh, you thought you could stop me?"
+        delta = types.SimpleNamespace(content=text, tool_calls=None)
+        return Stream([types.SimpleNamespace(choices=[types.SimpleNamespace(delta=delta)])])
+
+    b.client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
+    tool = {"name": "web_search", "description": "search", "schema": {"type": "object", "properties": {}}}
+    shown = []
+    reply, _ = b.answer("sys", [{"role": "user", "content": "villain monologue"}], [tool],
+                        lambda name, args: ran.append((name, args)) or "results", shown.append)
+    assert ran == [("web_search", {"query": "roblox villain"})] and reply == "Ahh, you thought you could stop me?"
+    assert "<tool_call>" not in "".join(shown)
