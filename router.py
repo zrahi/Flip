@@ -271,6 +271,7 @@ GAME_ASK = re.compile(r"\b(beat|counter|deal with|play (vs|against)|how (do|shou
                       r"beat|counter|take|retake))\b", re.I)
 
 
+SCREEN_ASK = re.compile(r"\b(see|look at|seeing|watch|watching)\b.{0,20}\bscreen\b", re.I)
 GAME_FOLLOW = re.compile(r"\?|^\W*(and|but|so|ok|okay|what|how|why|where|which|when|who|should|can|could|would|is|"
                          r"are|do|does|did|then|also|more|else|next|now)\b|\b(hold|push|peek|play|playing|buy|save|"
                          r"smoke|flash|site|round|rank|ranked|agent|map|util|entry|aim|crosshair|sens|comp|team|enemy|"
@@ -315,7 +316,7 @@ def route(text, mode="auto", recent="", voice=False, pictures=0):
     chit = small_talk(text) and mode not in ("math", "code")
     # In a Valorant chat a short follow-up ("ok what else?", "and on defense?") keeps the coaching going; "man
     # i'm so tired today" is just chat, even there (it got a Yoru setup)
-    val = not chit and (is_valorant(t) or ((mode == "valorant" or (recent_val and len(t.split()) <= 12))
+    val = not chit and not SCREEN_ASK.search(t) and (is_valorant(t) or ((mode == "valorant" or (recent_val and len(t.split()) <= 12))
                                            and bool(GAME_FOLLOW.search(t))))
     math_q = not chit and (mode == "math" or looks_like_math(text))
     roblox = _has(ROBLOX_WORDS, t) or (_has(ROBLOX_WORDS, recent.lower()) and _has(CODE_WORDS, t))

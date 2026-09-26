@@ -271,3 +271,34 @@ def test_no_ayy_every_time():
     assert repeats.fresh_opener("Ayyy, Sam — take mid first.", before) == "Take mid first."
     assert repeats.fresh_opener("Ayy, take mid first.", ["Save.", "Buy."]) == "Ayy, take mid first."  # not used lately
     assert repeats.fresh_opener("Yoru's a lurker.", before) == "Yoru's a lurker."  # "Yoru" isn't "yo"
+
+
+def test_a_voice_redo_is_watched_too(monkeypatch):
+    import store
+    from brain import Brain
+
+    first = "I'm on the cooldown, man, just got a new bot frag in Valorant. How's your game?"
+    again = "I'm on the record, just got a bot frag while I was in Valorant. What's up with your game today?"
+
+    class Backend:
+        calls = 0
+
+        def answer(self, system, history, tools, run_tool, on_text=None, stop=None, **kw):
+            Backend.calls += 1
+            text = first if Backend.calls == 1 else again  # the redo says the same thing again
+            for piece in text.split(" "):
+                on_text(piece + " ")
+                if stop is not None and stop.is_set():
+                    return text, True
+            return text, False
+
+    if store.account is None:
+        store.use_account(store.create_account("voiceredo", "password1"))
+    store.use_profile(store.profiles()[0] if store.profiles() else store.create_profile("Sam"))
+    b = Brain({"name": "Flip", "roblox_studio": False}, "You are {name}.", "http://127.0.0.1:9/v1")
+    b.backend = Backend()
+    said = []
+    b.chat("voiceredo", "yo what's up", voice=True, on_text=said.append)
+    said.clear()
+    reply, _, _ = b.chat("voiceredo", "do you see my screen?", voice=True, on_text=said.append)
+    assert not repeats.too_similar(reply, [first]) and not repeats.too_similar("".join(said), [first])

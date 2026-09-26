@@ -396,7 +396,10 @@ class Brain:
         user_repeated = bool(before) and repeats.same_message(text, before)
         topic = recent + " " + text
         mode = self.settings.get("mode") or ("fast" if self.settings.get("fast_mode") else "auto")
-        way = router.route(text, mode, recent, voice, pictures=sum(a["kind"] == "image" for a in attached) + bool(image))
+        # what they said decides the kind of help (his own replies mentioning Valorant dragged "do you see my
+        # screen?" into coaching)
+        theirs = " ".join(str(m["content"]) for m in history[-4:] if m["role"] == "user")
+        way = router.route(text, mode, theirs, voice, pictures=sum(a["kind"] == "image" for a in attached) + bool(image))
         self.last_route = way
         log.info("%s", way)
         self.on_route(way)
@@ -535,7 +538,7 @@ class Brain:
             # the same message again gets the redo watched just as closely
             got, stopped, watch = attempt(history + [{"role": "assistant", "content": tried},
                                                      {"role": "user", "content": note}],
-                                          compare if user_repeated else [], redo=True)
+                                          compare if user_repeated or voice else [], redo=True)
             reply = watch.text()
             still = "" if stopped else watch.why or (not voice and repeats.too_similar(reply, compare))
             if still:
