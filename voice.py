@@ -72,12 +72,19 @@ def speakable(text):
     return text
 
 
-CALL_EARS = "base.en"     # speech-to-text for voice calls (fast)
-CAPTION_EARS = "tiny.en"  # live captions while they talk (fastest; the final text uses CALL_EARS)
+# Speech-to-text. "small" keeps up with fast talkers, where "base" turns quick speech into mush, so calls use
+# it on every PC that runs it in time (it used to need to be twice as fast). (distil-small.en was tried: on
+# real speech with the hint words it looped "how how how…", so it's out.)
+EARS = "small.en"
+BACKUP_EARS = "base.en"   # only on PCs too slow for EARS
+CAPTION_EARS = "tiny.en"  # live captions while they talk (fastest; the final text uses EARS)
+SPEECH_MODELS = (EARS, BACKUP_EARS, CAPTION_EARS, "distil-small.en", "medium.en", "small", "base", "tiny")
+EARS_MAX = 1.4            # s for 3 s of audio: slower than this and calls fall back to BACKUP_EARS
+UNSURE = -0.75            # average log-probability under which a quick transcript gets a careful second look
+UNCLEAR = -1.0            # ...and under which, even after that, it's a guess: he asks them to say it again
 
 # When they've stopped talking: answer after END_FAST of quiet if what they said sounds finished
 # ("what should I buy?"), otherwise wait up to END_SLOW ("so what about the…").
-ACCURATE_EARS_MAX = 0.7  # s for 3 s of audio: fast enough to use the accurate model in calls
 END_FAST = 0.25
 END_SLOW = 0.8
 FINAL_AFTER = 3        # frames of quiet (~0.1 s) before the final speech-to-text starts
@@ -99,11 +106,12 @@ def sounds_finished(text):
 
 FRAME = 512  # 32 ms at 16 kHz: the size the speech detector works on
 
-# Words he should expect to hear, so speech-to-text spells them right.
-HINT_WORDS = ("Flip, Valorant, Jett, Reyna, Raze, Phoenix, Neon, Iso, Yoru, Sova, Skye, Fade, Gekko, KAY/O, Breach, "
-              "Omen, Viper, Astra, Harbor, Clove, Brimstone, Killjoy, Cypher, Sage, Chamber, Deadlock, Vyse, Tejo, "
-              "Waylay, Vandal, Phantom, Operator, Sheriff, Ascent, Haven, Bind, Split, Lotus, Sunset, Icebox, Breeze, "
-              "Pearl, Fracture, Abyss, Radiant, Immortal, clutch, eco, one tap, gg. Coach me. Can you coach me?")
+# How he expects to be talked to, so speech-to-text spells game words right and keeps up with fast, casual talk.
+# (Sentences, not a list of names: a bare list of agents made it hear "Yoru" in "yo jett is on me".)
+HINT_WORDS = ("Yo Flip, what's up bro. Jett is on me, I'm playing Lotus rn, two A one heaven. Reyna and Raze are "
+              "pushing B, Omen smoke, Sova recon dart, Viper wall, Killjoy turret, Cypher cam, Sage wall, Brimstone "
+              "molly. Should I buy a Vandal or Phantom, Sheriff or Spectre on eco? Ascent, Haven, Bind, Split, Icebox, "
+              "Breeze, Pearl, Sunset, Abyss, Fracture. Ngl that was a clutch, one tap, gg, lol. Coach me.")
 
 
 class Ears:
@@ -212,7 +220,7 @@ class Voice:
         self._say_lock = threading.Lock()
         self.level = 0.0
         self.names = []
-        self.call_ears = CALL_EARS  # may become the bigger model after preload() times it
+        self.call_ears = EARS  # may become BACKUP_EARS after preload() times it on a slow PC
 
     # ---------- ears ----------
 
@@ -221,7 +229,7 @@ class Voice:
         rng = np.random.default_rng(0)
         hiss = rng.normal(0, 0.01, RATE).astype(np.float32)
         took = {}
-        for which in ("tiny", True, False):
+        for which in ("tiny", True):
             try:
                 model = self._get_whisper(which)
                 for _ in range(2):  # the second run is the real speed
@@ -231,19 +239,35 @@ class Voice:
                     took[which] = time.time() - t
             except Exception:
                 log.exception("Couldn't load speech-to-text")
-        # Calls use the bigger, more accurate model (much better with fast talkers) when this PC runs it
-        # quickly enough; otherwise the faster base model.
-        big = self._s.get("whisper_model") or "small.en"
-        if took.get(False, 9) <= ACCURATE_EARS_MAX:
-            self.call_ears = big
+        if took.get(True, 0) > EARS_MAX:  # a really slow PC: understanding late is worse than a few typos
+            self.call_ears = BACKUP_EARS
         log.info("Speech-to-text speed: %s -> calls use %s",
-                 {k if isinstance(k, str) else ("call" if k else "big"): round(v, 2) for k, v in took.items()}, self.call_ears)
+                 {("captions" if k == "tiny" else "calls"): round(v, 2) for k, v in took.items()}, self.call_ears)
+        self._forget_old_ears()
         self.preload_mouth()
 
+    def _ears_for(self, quick):
+        """tiny: live captions. quick: voice calls. Otherwise click-to-talk, where a moment longer is fine."""
+        if quick == "tiny":
+            return CAPTION_EARS
+        return self.call_ears if quick else self._s.get("whisper_model") or EARS
+
+    def _forget_old_ears(self):
+        """Speech models that aren't used anymore (older versions downloaded 3) get deleted."""
+        import shutil
+
+        from paths import DATA
+        keep = {CAPTION_EARS, self.call_ears, self._ears_for(False)}
+        for name in SPEECH_MODELS:
+            folder = DATA / "speech" / name
+            if name not in keep and folder.is_dir():
+                shutil.rmtree(folder, ignore_errors=True)
+                log.info("Deleted the unused %s speech model", name)
+
     def _get_whisper(self, quick=False):
-        """quick (voice calls): the base model, about 3x faster than small with the same results on
-        normal talking. "tiny": live captions. Click-to-talk keeps the more careful small one."""
-        size = CAPTION_EARS if quick == "tiny" else self.call_ears if quick else (self._s.get("whisper_model") or "small.en")
+        """quick (voice calls) and click-to-talk: EARS (or the user's own pick for click-to-talk).
+        "tiny": live captions."""
+        size = self._ears_for(quick)
         with self._whisper_lock:
             if size not in self._whisper:
                 import shutil
@@ -256,7 +280,14 @@ class Voice:
                 if not (folder / "model.bin").exists():
                     # a plain folder: the default download kept a second copy of the model on Windows
                     download_model(size, output_dir=str(folder))
-                self._whisper[size] = WhisperModel(str(folder), device="cpu", compute_type="int8", cpu_threads=_threads())
+                try:
+                    model = WhisperModel(str(folder), device="cpu", compute_type="int8", cpu_threads=_threads())
+                except RuntimeError:  # a broken or cut-off download: get it again instead of staying deaf
+                    log.exception("Speech model %s is broken, downloading it again", size)
+                    shutil.rmtree(folder, ignore_errors=True)
+                    download_model(size, output_dir=str(folder))
+                    model = WhisperModel(str(folder), device="cpu", compute_type="int8", cpu_threads=_threads())
+                self._whisper[size] = model
                 for old in (DATA / "speech").glob("models--*"):  # left over from older versions
                     shutil.rmtree(old, ignore_errors=True)
             return self._whisper[size]
@@ -298,28 +329,40 @@ class Voice:
         window = max(4, min(30, int(len(audio) / RATE) + 2)) if quick else 30
         model = self._get_whisper("tiny" if tiny else quick)
 
-        def run(window):
+        def run(window, beam=None):
             extra = {"temperature": 0.0} if quick else {}
             segments, _ = model.transcribe(
-                audio, language="en", beam_size=1 if quick else 5, initial_prompt=", ".join(self.names + [HINT_WORDS]),
+                # a call's final words get a careful pass (several guesses compared): fast talkers got greedy
+                # one-shot guesses wrong; live captions (tiny) stay quick
+                audio, language="en", beam_size=beam or (1 if tiny else 5),
+                initial_prompt=", ".join(self.names + [HINT_WORDS]),
                 condition_on_previous_text=False, without_timestamps=quick, chunk_length=window,
                 vad_filter=trim_silence, vad_parameters={"threshold": 0.3, "min_silence_duration_ms": 600}, **extra,
             )
-            return " ".join(s.text.strip() for s in segments).strip()
+            segments = list(segments)
+            sure = min((s.avg_logprob for s in segments), default=0.0)
+            return " ".join(s.text.strip() for s in segments).strip(), sure
 
         try:
-            text = run(window)
+            text, sure = run(window)
         except Exception:
             if window == 30:
                 raise
             log.exception("Short-window speech-to-text failed, using the full window")
             window = 30
-            text = run(window)
+            text, sure = run(window)
+        if quick and not tiny and text and sure < UNSURE:
+            # Mumbled or said really fast: even the careful pass wasn't sure. A wider search once more.
+            again, sure2 = run(window, beam=8)
+            log.info("Unsure what I heard (%.2f): %r -> %r (%.2f)", sure, text, again, sure2)
+            if again and sure2 >= sure:
+                text, sure = again, sure2
         secs = time.time() - started
         if not tiny:
             self.last_stt = {"audio": round(len(audio) / RATE, 1), "secs": round(secs, 2), "window": window}
-        log.info("Heard %.1fs of audio in %.2fs (%s, window %ss)", len(audio) / RATE, secs,
-                 "tiny" if tiny else self.call_ears if quick else "full", window)
+            self.last_sure = sure
+        log.info("Heard %.1fs of audio in %.2fs (%s, window %ss, sure %.2f): %r", len(audio) / RATE, secs,
+                 "tiny" if tiny else self.call_ears if quick else "full", window, sure, text[:120])
         return "" if text.lower().strip(" .!?") in NOISE_WORDS else text
 
     # Click-to-talk: record until stop_listening() is called.

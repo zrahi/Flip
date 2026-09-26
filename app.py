@@ -2,12 +2,14 @@
 
 import atexit
 import json
+import random
 import logging
 import os
 import queue
 import sys
 import threading
 import time
+from pathlib import Path
 
 from paths import DATA, RES, load_settings, personality_file, save_settings
 
@@ -24,14 +26,14 @@ def selftest(out_path):
     """Used by the build: checks that everything Flip needs made it into the .exe."""
     lines = []
     for mod in ("webview", "clr", "openai", "mcp", "mcp.client.stdio", "faster_whisper", "ctranslate2", "onnxruntime", "numpy",
-                "sounddevice", "edge_tts", "kokoro_onnx", "pystray", "PIL", "brain", "engine", "voice", "store", "storage", "updater", "screen", "autotest", "router", "knowledge", "mathtool", "usage", "sympy", "attachments", "pypdf", "playtest"):
+                "sounddevice", "edge_tts", "kokoro_onnx", "pystray", "PIL", "brain", "engine", "voice", "store", "storage", "updater", "screen", "autotest", "router", "knowledge", "mathtool", "usage", "sympy", "attachments", "pypdf", "playtest", "repeats", "generate", "gradio_client", "web", "livedata", "hotkey", "openvino", "draw", "cliptok"):
         try:
             __import__(mod)
             lines.append(f"ok {mod}")
         except BaseException as e:  # sounddevice raises OSError when there's no audio device, that's fine
             lines.append(f"{'ok' if mod == 'sounddevice' and isinstance(e, OSError) else 'FAIL'} {mod}: {e!r}")
     for f in ("ui/index.html", "ui/pet.html", "ui/app.js", "ui/desk.js", "ui/pet.js", "ui/pet.css",
-              "ui/style.css", "personality.txt", "flip.ico", "knowledge/valorant.md", "knowledge/roblox.md", "ui/vendor/katex/katex.min.js", "version.txt"):
+              "ui/style.css", "personality.txt", "flip.ico", "knowledge/valorant.md", "knowledge/valorant-strats.md", "knowledge/roblox.md", "ui/vendor/katex/katex.min.js", "version.txt"):
         lines.append(f"{'ok' if (RES / f).exists() else 'FAIL'} file {f}")
     import faster_whisper
     assets = os.path.join(os.path.dirname(faster_whisper.__file__), "assets")
@@ -43,6 +45,11 @@ def selftest(out_path):
         lines.append(f"{'ok' if clip and clip['mime'] == 'audio/pcm' and len(clip['audio']) > 10000 else 'FAIL'} his voice speaks")
     except BaseException as e:
         lines.append(f"FAIL his voice speaks: {e!r}")
+    try:  # the on-PC drawer's engine really runs (its CPU plugin made it into the .exe)
+        import openvino as ov
+        lines.append(f"{'ok' if 'CPU' in ov.Core().available_devices else 'FAIL'} drawing engine")
+    except BaseException as e:
+        lines.append(f"FAIL drawing engine: {e!r}")
     try:
         from faster_whisper.vad import get_vad_model
         import numpy as np
@@ -81,6 +88,8 @@ import webview  # noqa: E402
 from openai import APIConnectionError, APIStatusError  # noqa: E402
 
 import attachments  # noqa: E402
+import generate  # noqa: E402
+import router  # noqa: E402
 import screen  # noqa: E402
 import usage  # noqa: E402
 import storage  # noqa: E402
@@ -88,7 +97,12 @@ from updater import Updater  # noqa: E402
 import store  # noqa: E402
 from brain import Brain, NoModelError  # noqa: E402
 from engine import Engine  # noqa: E402
+import voice  # noqa: E402
 from voice import VOICES, Voice, list_mics  # noqa: E402
+
+# When speech-to-text only guessed what they said.
+UNCLEAR_LINES = ["sorry, didn't catch that, say it again?", "wait, what? say that one more time",
+                 "you cut out a bit, say that again?", "didn't get that, one more time?"]
 
 
 def load_skills():
@@ -222,6 +236,7 @@ class Api:
         self._brain.on_route = self._on_route
         self._engine.on_ready = self._warm_up
         self._voice = Voice(settings)
+        generate.TOKEN = settings.get("hf_token") or None  # optional: more free video time
         self._updater = Updater()
         self._main = None
         self._pet = None
@@ -292,6 +307,7 @@ class Api:
     # ---------- profiles ----------
 
     def _warm_up(self):
+        self._brain.on_cpu = str(self._engine.status.get("hardware") or "").startswith("CPU")
         if store.current is not None and self._engine.status["state"] == "ready":
             self._brain.warm_up()
 
@@ -350,13 +366,24 @@ class Api:
     def send(self, chat_id, text, voice=False, files=None):
         if store.current is None:
             return {"error": "pick a profile first 👤"}
-        if self._engine.status["state"] != "ready":
+        # "draw a…" / "make a video of…": made by free online makers, so it works even while the brain loads
+        chat_so_far = store.load_chat(chat_id) if chat_id else None
+        if voice and chat_so_far and text and getattr(self, "_unclear", None) == text:
+            self._unclear = None
+            return {"reply": random.choice(UNCLEAR_LINES), "stopped": False, "chat_id": chat_so_far["id"],
+                    "title": chat_so_far["title"], "problems": [], "secs": 0}
+        want = router.media_request(text, self._settings.get("mode") or "auto",
+                                    any(f.get("kind") == "image" for f in files or []),
+                                    generate.last_made(chat_so_far))
+        if not want and chat_so_far:  # "ok generate it, whatever u decide" after asking for one
+            want = router.pending_request(text, chat_so_far.get("messages") or [])
+        if not want and self._engine.status["state"] != "ready":
             return {"error": "hold up, my brain is still loading 🧠 give me a sec"}
         self._stop.clear()
         self._turn_send = {"send": time.time()}
         attached, problems = [], []
         if files:
-            if any(f.get("kind") == "image" for f in files) and not self._engine.status.get("vision"):
+            if not want and any(f.get("kind") == "image" for f in files) and not self._engine.status.get("vision"):
                 return {"error": "my eyes aren't loaded yet 👀 (the brain is still starting, or you're using your own AI server)"}
             self._ui("onRoute('look', false)")
             attached, problems = attachments.take(chat_id, files)
@@ -365,6 +392,8 @@ class Api:
             usage.record(images=sum(a["kind"] == "image" for a in attached), files=sum(a["kind"] == "file" for a in attached))
             if not text.strip():
                 text = "What do you make of this?" if any(a["kind"] == "image" for a in attached) else "Take a look at this."
+        if want:
+            return self._make(chat_id, text, want, attached, problems, voice)
         on_text = self._ui_text  # every piece goes to the window right away (the sender merges them)
 
         image, label = None, ""
@@ -401,6 +430,111 @@ class Api:
 
     def stop(self):
         self._stop.set()
+
+    # ---------- making pictures and videos ----------
+
+    def _make(self, chat_id, text, want, attached, problems, voice):
+        """Makes the picture/video they asked for (see generate.py) and puts it in the chat."""
+        kind, prompt = want
+        started = time.time()
+        chat = store.load_chat(chat_id) or store.new_chat(chat_id)
+        earlier = [m.get("shown") or m["content"] for m in chat["messages"] if m["role"] == "assistant"][-8:]
+        picture = next((attachments.path_of(chat_id, a["id"]) for a in attached if a["kind"] == "image"), None)
+        last = generate.last_made(chat)
+        if kind == "video" and picture is None and last and last["kind"] == "image" and router.ANIMATE.search(text):
+            picture = attachments.path_of(chat_id, last["id"])  # "now animate it": the picture he just made
+        media, links = [], []
+        if generate.not_ok(prompt):
+            reply = "nah, I don't make that kind of stuff 😅 pick something else?"
+        else:
+            self._ui(f"onRoute({json.dumps(kind)}, false)")
+
+            def status(s):
+                self._ui(f"onMakeStatus({json.dumps(s)})")
+
+            try:
+                if kind == "image":
+                    data, ext, source = generate.make_image(prompt, on_status=status, stop=self._stop)
+                    made = attachments.save_made(chat_id, data, ext, "image", prompt)
+                else:
+                    path, source = generate.make_video(prompt, picture, status, self._stop)
+                    try:  # saved into the chat first, then the download is deleted (even if saving failed)
+                        made = attachments.save_made(chat_id, Path(path).read_bytes(),
+                                                     Path(path).suffix.lstrip(".") or "mp4", "video", prompt)
+                    finally:
+                        generate.tidy(path)
+                log.info("Made a %s with %s in %.0fs", kind, source, time.time() - started)
+                usage.record(**{f"made_{kind}s": 1})
+                media.append(dict(made, url=attachments.load_url(chat_id, made["id"], 1280) if kind == "image" else None))
+                reply = generate.caption(kind, earlier)
+                if source.startswith("the official"):  # not his painting: the game's own art
+                    reply = f"here's {source.replace('the official ', '').replace(' art from the game', '')} straight from the game's files 🎯"
+            except generate.Stopped:
+                reply = "(stopped)"
+            except generate.LimitReached as e:
+                reply = str(e)
+                links = [{"label": name, "site": i} for i, (name, _) in enumerate(generate.WEBSITES)]
+            except generate.MakeError as e:
+                reply = str(e)
+            except Exception as e:
+                log.exception("Making a %s failed", kind)
+                reply = f"couldn't make that 😵 ({e})"
+        said = {"role": "user", "content": text}
+        if attached:
+            said["content"] = text + "".join(f"\n[picture: {a['name']}]" for a in attached if a["kind"] == "image")
+            said["shown"] = text
+            said["attachments"] = attachments.meta(attached)
+        answer = {"role": "assistant", "content": reply, "shown": reply}
+        if media:  # what he made stays in the chat, and he knows what it was
+            answer["content"] = f"{reply}\n\n[I made a {kind} of: {prompt}]"
+            answer["attachments"] = attachments.meta(media)
+        if not chat["messages"]:
+            chat["title"] = store.title_from(text)
+        chat["messages"] += [said, answer]
+        chat["updated"] = time.time()
+        store.save_chat(chat)
+        if self._pet is not None and (self._chat_hidden or voice) and media:
+            self.pet_say(reply)
+        return {"reply": reply, "media": media, "links": links, "prompt": prompt, "chat_id": chat["id"],
+                "title": chat["title"], "problems": problems, "stopped": reply == "(stopped)",
+                "secs": round(time.time() - started, 1)}
+
+    def media_video(self, chat_id, fid):
+        return attachments.load_video(chat_id, fid)
+
+    def save_media(self, chat_id, fid):
+        """"Save" on a picture/video Flip made (or a file in the chat): asks where, then copies it."""
+        import shutil
+
+        src = attachments.path_of(chat_id, fid)
+        if src is None:
+            return {"error": "that file is gone"}
+        chat = store.load_chat(chat_id) or {}
+        name = next((a["name"] for m in chat.get("messages", []) for a in m.get("attachments") or [] if a.get("id") == fid),
+                    src.name)
+        try:
+            kind = getattr(getattr(webview, "FileDialog", None), "SAVE", None) or webview.SAVE_DIALOG
+            where = self._main.create_file_dialog(kind, save_filename=attachments.safe_name(name))
+        except Exception as e:
+            log.exception("Save dialog failed")
+            return {"error": f"couldn't open the save window ({e})"}
+        if not where:
+            return {"cancelled": True}
+        try:
+            shutil.copyfile(src, where if isinstance(where, str) else where[0])
+        except OSError as e:
+            return {"error": f"couldn't save it there ({e})"}
+        return {"saved": True}
+
+    def open_site(self, index):
+        """Opens one of the free video websites (only those, nothing else)."""
+        import webbrowser
+
+        try:
+            webbrowser.open(generate.WEBSITES[int(index)][1])
+            return True
+        except (IndexError, ValueError):
+            return False
 
     # ---------- screen sharing ----------
 
@@ -460,9 +594,9 @@ class Api:
         return {"running": bool(self._playtest.get("running")), "results": self._playtest.get("results", []),
                 "score": score, "file": self._playtest.get("file")}
 
-    def media(self, chat_id, fid):
+    def media(self, chat_id, fid, max_side=480):
         """A picture from an old message (small), to show it again."""
-        return attachments.load_url(chat_id, fid)
+        return attachments.load_url(chat_id, fid, max(64, min(2048, int(max_side or 480))))
 
     def save_file(self, name, content):
         """"Save" on a file Flip wrote: asks where, then writes it. Never runs anything."""
@@ -523,6 +657,8 @@ class Api:
         info = {k: self._settings.get(k) for k in ("name", "voice", "voice_style", "talk_speed", "mic", "roblox_studio",
                                                    "brain_size")}
         info["voices"] = VOICES
+        import hotkey
+        info["voice_hotkey"] = hotkey.pretty(self._settings.get("voice_hotkey") or "") if sys.platform == "win32" else ""
         try:
             info["mics"] = list_mics()
         except Exception:
@@ -604,6 +740,10 @@ class Api:
 
     def voice_call_start(self):
         def heard(text):
+            # speech-to-text only guessed (noise, a bad mic, mumbling): he asks again instead of answering
+            # something they never said ("Your soft lip hoeing, bro." got a Haven strat)
+            if text and getattr(self._voice, "last_sure", 0) < voice.UNCLEAR:
+                self._unclear = text
             if self._main:
                 self._ui(f"onHeard({json.dumps(text)})")
 
@@ -803,6 +943,9 @@ class Api:
         threading.Thread(target=dark_title_bar, args=(self._main,), daemon=True).start()
         threading.Thread(target=allow_mic, args=(self._main,), daemon=True).start()
         threading.Thread(target=storage.tidy_on_start, daemon=True).start()
+        threading.Thread(target=self._keep_valorant_current, daemon=True).start()
+        import hotkey
+        hotkey.start(self._settings.get("voice_hotkey", "ctrl+alt+v"), self.pet_voice)  # voice calls from inside a game
         self._engine.start()
         threading.Thread(target=self._voice.preload, daemon=True).start()
         self._start_tray()
@@ -813,6 +956,17 @@ class Api:
         if os.environ.get("FLIP_AUTOTEST"):  # used by the build: clicks through the whole app
             import autotest
             threading.Thread(target=autotest.run, args=(self,), daemon=True).start()
+
+    def _keep_valorant_current(self):
+        """Current agents, maps, guns and patch notes into his notes: now, then every few hours (livedata only
+        downloads again once a day, or when the game's version changed)."""
+        import knowledge
+        import livedata
+
+        while not self._quitting:
+            if livedata.refresh():
+                self._brain.knowledge = knowledge.load()
+            time.sleep(6 * 3600)
 
     def _screenshot(self):
         try:
@@ -874,7 +1028,9 @@ def main():
     window.events.closing += api._on_main_closing
     api._main = window
     log.info("Starting %s", settings["name"])
-    webview.start(api._startup)
+    # The window's browser keeps its files in Flip's folder: by default it made a new temp folder every start,
+    # and those piled up whenever Flip didn't close cleanly (see storage._browser_leftovers).
+    webview.start(api._startup, storage_path=str(DATA / "webview"))
 
 
 if __name__ == "__main__":

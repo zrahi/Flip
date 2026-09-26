@@ -223,17 +223,46 @@ def for_brain(saved):
 
 def meta(saved):
     """What gets saved with the chat message (no data, no text)."""
-    return [{k: a[k] for k in ("kind", "name", "id", "size") if k in a} for a in saved]
+    return [{k: a[k] for k in ("kind", "name", "id", "size", "made", "prompt") if k in a} for a in saved]
+
+
+def _folder(chat_id):
+    return MEDIA / re.sub(r"[^\w-]", "", str(chat_id))[:40]
+
+
+def path_of(chat_id, fid):
+    """The saved file of a chat (None if there's no such file, or the id tries to leave the chat's folder)."""
+    folder = _folder(chat_id)
+    path = folder / safe_name(fid)
+    return path if path.is_file() and path.parent == folder else None
+
+
+def save_made(chat_id, data, ext, kind, prompt):
+    """Keeps a picture/video Flip made next to the chat. Returns its meta for the message."""
+    folder = _folder(chat_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    fid = f"{uuid.uuid4().hex[:10]}.{ext}"
+    (folder / fid).write_bytes(data)
+    slug = re.sub(r"[^a-z0-9]+", "-", prompt.lower()).strip("-")[:40] or kind
+    return {"kind": kind, "name": f"flip-{slug}.{ext}", "id": fid, "size": len(data), "made": True, "prompt": prompt[:400]}
 
 
 def load_url(chat_id, fid, max_side=480):
     """A saved picture (small) as a data URL, for showing old chats."""
-    folder = MEDIA / re.sub(r"[^\w-]", "", str(chat_id))[:40]
-    path = (folder / safe_name(fid))
-    if not path.is_file() or path.parent != folder:
+    path = path_of(chat_id, fid)
+    if path is None:
         return None
     try:
         jpeg, _ = _shrink_image(path.read_bytes(), max_side)
         return "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()
     except Exception:
         return None
+
+
+def load_video(chat_id, fid):
+    """A saved video as a data URL, for the chat to play."""
+    path = path_of(chat_id, fid)
+    if path is None or path.stat().st_size > 80 * 1024 * 1024:
+        return None
+    mime = {".webm": "video/webm", ".mov": "video/quicktime"}.get(path.suffix.lower(), "video/mp4")
+    return f"data:{mime};base64," + base64.b64encode(path.read_bytes()).decode()

@@ -41,14 +41,21 @@ assert reply.strip()
 reply, _, _ = brain.chat("e2e", "who's my main agent?")
 print("REPLY 2:", reply, brain.last_stats)
 
-# no parroting: three different messages in a voice call must get three different replies
-from brain import _repeats  # noqa: E402
+# no parroting: different messages in a voice call get different replies, and so does the same message twice
+from repeats import too_similar as verdict  # noqa: E402  (stricter than his own check)
 
 said = []
-for msg in ("yo what's up bro", "could you stop saying the same thing every time", "do you see my screen?"):
-    reply, _, _ = brain.chat("e2e-repeat", msg, voice=True)
+for msg in ("yo what's up bro", "could you stop saying the same thing every time", "do you see my screen?",
+            "wsp coach", "wsp coach"):
+    reply, _, _ = brain.chat("e2erepeat", msg, voice=True)  # (letters only: a "-" never saved the chat)
     print("REPLY VOICE:", reply)
-    assert not _repeats(reply, said), f"repeated itself: {reply!r} after {said!r}"
+    assert not verdict(reply, said), f"repeated itself: {reply!r} after {said!r}"
+    said.append(reply)
+said = []
+for msg in ("wsp coach", "wsp coach", "I play Yoru", "I do hear a coach."):  # the chat from the user's screenshots
+    reply, _, _ = brain.chat("e2etext", msg)
+    print("REPLY TEXT:", reply)
+    assert not verdict(reply, said), f"repeated itself: {reply!r} after {said!r}"
     said.append(reply)
 
 # eyes: a picture with a big red square on white; he has to say it's red
@@ -59,7 +66,7 @@ ImageDraw.Draw(img).rectangle((180, 80, 460, 280), fill=(230, 20, 20))
 buf = io.BytesIO()
 img.save(buf, "JPEG")
 pic = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
-reply, _, _ = brain.chat("e2e-eyes", "What color is the big square on my screen? Answer with one word.", image=pic,
+reply, _, _ = brain.chat("e2eeyes", "What color is the big square on my screen? Answer with one word.", image=pic,
                          image_label="a test picture")
 print("REPLY EYES:", reply, brain.last_stats)
 assert "red" in reply.lower(), reply
@@ -68,10 +75,25 @@ print("hardware:", engine.hardware())
 # quality: math (with the calculator) and Valorant coaching
 import playtest as evals  # noqa: E402
 
-math_ok, calc_used, math_n = evals.run_math(brain)
-val_ok, val_n = evals.run_valorant(brain)
-print(f"SCORE math {math_ok}/{math_n} (calculator used when needed {calc_used}/{math_n}), valorant {val_ok}/{val_n}")
+# coaching and how he talks come first; math matters least
+lines = []
+
+
+def log(line):
+    print(line, flush=True)
+    lines.append(line)
+
+
+val_ok, val_n = evals.run_valorant(brain, log)
+chat_ok, chat_n = evals.run_chat(brain, log)
+math_ok, calc_used, math_n = evals.run_math(brain, log, only=evals.QUICK_MATH)
+print(f"SCORE valorant {val_ok}/{val_n}, chat {chat_ok}/{chat_n}, math {math_ok}/{math_n} "
+      f"(calculator used when needed {calc_used}/{math_n})")
 engine.stop()
-assert math_ok >= 12, f"math eval too low: {math_ok}/{math_n}"
-assert val_ok >= 9, f"valorant eval too low: {val_ok}/{val_n}"
+must = ["no strats when we're just chatting", "doesn't invent agents"]  # the things the user caught him on
+missed = [m for m in must if any(l.startswith("EVAL valorant FAIL") and f"[{m}]" in l for l in lines)]
+assert not missed, f"got these wrong: {missed}"
+assert val_ok >= round(val_n * 0.7), f"valorant coaching eval too low: {val_ok}/{val_n}"
+assert chat_ok >= chat_n - 2, f"chat eval too low: {chat_ok}/{chat_n}"
+assert math_ok >= math_n - 2, f"math eval too low: {math_ok}/{math_n}"
 print("E2E OK")

@@ -50,13 +50,14 @@ def run(api):
         except Exception:
             log.exception("screenshot failed")
 
-    def step(name, fn):
+    def step(name, fn, soft=False):
+        """soft: depends on a free online service with daily limits; a miss is a warning, not a failure."""
         started = time.time()
         try:
             detail = fn() or ""
             results.append({"step": name, "ok": True, "detail": str(detail)[:300], "secs": round(time.time() - started, 1)})
         except Exception as e:
-            results.append({"step": name, "ok": False, "detail": f"{e}\n{traceback.format_exc()[-800:]}",
+            results.append({"step": name, "ok": soft, "warn": soft, "detail": f"{e}\n{traceback.format_exc()[-800:]}",
                             "secs": round(time.time() - started, 1)})
         shot(name.replace(" ", "-"))
         (out / "results.json").write_text(json.dumps(results, indent=1))
@@ -80,7 +81,12 @@ def run(api):
     def chat(text, timeout=600):
         before = js("document.querySelectorAll('.msg.pet').length")
         call(f"send({json.dumps(text)})")
-        wait_for(f"document.querySelectorAll('.msg.pet').length > {before} && busy === false", timeout, "the reply")
+        try:
+            wait_for(f"document.querySelectorAll('.msg.pet').length > {before} && busy === false", timeout, "the reply")
+        except Failed:
+            call("stopReply()")  # don't leave him busy: the next steps would all time out too
+            wait_for("busy === false", 60, "him to stop")
+            raise
         r = json.loads(last_reply())
         if not r.get("text", "").strip() or r.get("error"):
             raise Failed(f"bad reply: {r}")
@@ -262,10 +268,12 @@ def run(api):
         wait_for("mode === 'math'", 20, "math mode")
         tools = []
         api._brain.on_tool = lambda name: (tools.append(name), api._on_tool(name))
-        answer = chat("what's 59382 × 912?")
-        api._brain.on_tool = api._on_tool
-        call("setMode('auto')")
-        wait_for("mode === 'auto'", 20)
+        try:
+            answer = chat("what's 59382 × 912?")
+        finally:  # back to normal even when it fails, so the next steps aren't in math mode
+            api._brain.on_tool = api._on_tool
+            call("setMode('auto')")
+            wait_for("mode === 'auto'", 20)
         if "54156384" not in re.sub(r"[\s,]", "", answer):
             raise Failed(f"wrong math: {answer!r}")
         if "math" not in tools:
@@ -274,6 +282,8 @@ def run(api):
     step("modes: fast + math (calculator)", modes)
 
     def live_coach():
+        call("setMode('auto')")
+        wait_for("mode === 'auto'", 20)
         call("newChat()")
         wait_for("!document.body.classList.contains('chatting')", 10)
         chat("Lotus, Phoenix, attack, 3.4k credits")
@@ -287,9 +297,129 @@ def run(api):
         return f"{reply!r} ({n} words)"
     step("valorant: live callouts", live_coach)
 
+    def new_chat_now():
+        call("newChat()")
+        wait_for("!document.body.classList.contains('chatting')", 10)
+
+    def no_repeats():
+        from repeats import too_similar as verdict  # stricter than his own check
+
+        new_chat_now()
+        said = []
+        for msg in ("wsp coach", "wsp coach", "I play Yoru", "I do hear a coach."):  # the chat from the screenshots
+            reply = chat(msg)
+            why = verdict(reply, said)
+            if why:
+                raise Failed(f"repeated itself ({why}): {reply!r} after {said!r}")
+            said.append(reply)
+        return " | ".join(r[:70] for r in said)
+    step("no repeats (wsp coach twice…)", no_repeats)
+
+    def review():
+        reply = chat("why did we lose? Bind, 6-13, I was Jett, 9/17/3, I died first in 8 rounds")
+        way = api._brain.last_route
+        if way.kind != "review":
+            raise Failed(f"not reviewed like a coach: {way}")
+        if len(reply.split()) < 40:
+            raise Failed(f"too short for a review: {reply!r}")
+        return reply[:250]
+    step("valorant: match review", review)
+
+    def live_data():
+        import knowledge
+        import livedata
+
+        if not livedata.refresh(force=True):
+            raise Failed("couldn't download the current agents, maps and guns")
+        text = livedata.NOTES.read_text(encoding="utf-8")
+        agents, maps = text.count("current kit"), text.count("callouts (current)")
+        if agents < 20 or maps < 7:
+            raise Failed(f"only {agents} agents and {maps} maps in the live notes")
+        api._brain.knowledge = knowledge.load()
+        return f"{agents} agents, {maps} maps, patch notes: {'## Patch notes' in text}"
+    step("valorant: live game data", live_data)
+
+    def web_lookup():
+        import web
+
+        reply = chat("what's the current meta in valorant right now?")
+        way = api._brain.last_route
+        if not way.search:
+            raise Failed(f"didn't look it up: {way}")
+        found = web.search(way.search)
+        if not found:
+            raise Failed("the web search found nothing")
+        return f"{len(found)} results ({found[0]['url']}); {reply[:150]!r}"
+    step("valorant: looks up the current meta", web_lookup, soft=True)
+
+    def picture():
+        new_chat_now()
+        reply = chat("draw a cute frog wearing a gaming headset", timeout=400)
+        wait_for("(() => { const i = document.querySelector('.made img'); return i && i.naturalWidth > 100; })()", 60,
+                 f"the picture (he said {reply!r})")
+        prompt = js("document.querySelector('.made .p').textContent")
+        from paths import DATA
+
+        drew = [l for l in (DATA / "flip.log").read_text(encoding="utf-8", errors="ignore").splitlines()
+                if "on this PC in" in l or "Drawing kit downloaded" in l]
+        if not drew:
+            raise Failed(f"it wasn't drawn on this PC (he said {reply!r})")
+        return f"{reply!r}: {prompt} | {' / '.join(l.split('INFO ')[-1] for l in drew[-2:])}"
+    step("makes a picture (drawn on this PC)", picture)
+
+    def video():
+        reply = chat("now animate it", timeout=1500)
+        wait_for("(() => { const v = document.querySelector('.made video'); return v && v.readyState >= 1; })()", 60,
+                 f"the video (he said {reply!r})")
+        return reply
+    step("makes a video (free GPUs, daily limit)", video, soft=True)
+
+    def nothing_left():
+        import generate
+
+        import draw
+
+        left = [str(p) for p in generate.TMP.rglob("*")] if generate.TMP.exists() else []
+        left += [str(p) for p in draw.HOME.rglob("*")] if draw.HOME.exists() else []  # the drawing kit too
+        if left:
+            raise Failed(f"downloads left behind after making things: {left[:5]}")
+        saved = js("document.querySelectorAll('.made img, .made video').length")
+        return f"temp folder empty, {saved} made things still in the chat"
+    step("nothing left behind after making things", nothing_left)
+
+    def official_art():
+        from paths import DATA
+
+        new_chat_now()
+        reply = chat("make me a picture of jett", timeout=300)
+        wait_for("(() => { const i = document.querySelector('.made img'); return i && i.naturalWidth > 100; })()", 60,
+                 f"Jett's picture (he said {reply!r})")
+        log_text = (DATA / "flip.log").read_text(encoding="utf-8", errors="ignore")
+        if "official Jett art" not in log_text:
+            raise Failed("the picture of Jett wasn't the real art from the game")
+        return reply
+    step("a picture of Jett is the real art", official_art, soft=True)
+
+    def shortcut():
+        from paths import DATA
+
+        if "Voice shortcut ready" not in (DATA / "flip.log").read_text(encoding="utf-8", errors="ignore"):
+            raise Failed("the Ctrl+Alt+V shortcut didn't register")
+        api.pet_voice()
+        wait_for("voiceOn === true", 20, "voice chat starting from the shortcut")
+        api.pet_voice()
+        wait_for("voiceOn === false", 20, "voice chat ending from the shortcut")
+    step("Ctrl+Alt+V voice shortcut", shortcut)
+
+    def clear_caches():
+        r = api.clean_up()
+        return f"freed {r['freed_gb']} GB; {r['report']['total_gb']} GB total"
+    step("clear caches", clear_caches)
+
     def playtest_runs():
         call("openSettings()")
-        wait_for("document.querySelector('#playtest-btn') !== null", 10)
+        # the button is always in the page: wait until Settings has really opened, or it opens over the playtest
+        wait_for("$('#panel').dataset.show === 'settings' && body.classList.contains('panel-open')", 30, "settings")
         call("document.querySelector('#playtest-btn').click()")
         wait_for("$('#panel').dataset.show === 'playtest'", 10, "the playtest panel")
         call("document.querySelector('#pt-go').click()")
@@ -301,7 +431,7 @@ def run(api):
         while api.playtest_status()["running"] and time.time() < deadline:
             time.sleep(1)
         call("closeAll()")
-        if any(c["id"].startswith("playtest-") for c in api.list_chats()):
+        if any(c["id"].startswith("playtest") for c in api.list_chats()):
             raise Failed("playtest chats were left behind")
         return first[:200]
     step("playtest runs", playtest_runs)
@@ -331,7 +461,8 @@ def run(api):
     step("log out and back in", log_out_and_in)
 
     ok = all(r["ok"] for r in results)
-    lines = [f"{'PASS' if r['ok'] else 'FAIL'} {r['step']} ({r['secs']}s): {r['detail']}" for r in results]
+    lines = [f"{'WARN' if r.get('warn') else 'PASS' if r['ok'] else 'FAIL'} {r['step']} ({r['secs']}s): {r['detail']}"
+             for r in results]
     (out / "results.txt").write_text(("ALL PASSED\n" if ok else "SOME FAILED\n") + "\n".join(lines), encoding="utf-8")
     log.info("Autotest done: %s", "all passed" if ok else "some failed")
     api.quit()

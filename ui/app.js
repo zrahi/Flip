@@ -135,7 +135,7 @@ const toBottom = () => { chatEl.scrollTop = chatEl.scrollHeight; };
 function addMsg(role, text, extra = '', atts = null, chatForMedia = null) {
   const row = document.createElement('div');
   row.className = `msg ${role} ${extra}`;
-  if (atts && atts.length) row.appendChild(attRow(atts, chatForMedia));
+  if (atts && atts.length && role !== 'pet') row.appendChild(attRow(atts, chatForMedia));
   if (role === 'pet') {
     const who = document.createElement('div');
     who.className = 'who';
@@ -146,6 +146,7 @@ function addMsg(role, text, extra = '', atts = null, chatForMedia = null) {
   b.className = 'b';
   b.innerHTML = format(text);
   row.appendChild(b);
+  if (atts && atts.length && role === 'pet') row.appendChild(attRow(atts, chatForMedia));  // what he made, under his words
   thread.appendChild(row);
   toBottom();
   return row;
@@ -235,12 +236,20 @@ window.onTool = (name) => {
   if (name === 'remember') { addNote('🧠 saved to memory'); return; }
   if (name === 'forget') { addNote('🧠 forgot something'); return; }
   if (name === 'math') { setState('working', 'calculating…'); return; }
+  if (name === 'web_search') { setState('working', 'looking it up… 🔎'); return; }
   setState('working', 'working in Roblox Studio…');
+};
+
+// Called from Python while he makes a picture or a video: what's going on (in line, painting 40%…).
+window.onMakeStatus = (said) => {
+  if (!stream) return;
+  stream.b.innerHTML = `<span class="making">${esc(said)}</span>`;
+  setState('working', said);
 };
 
 // Called from Python when he's decided what kind of message this is.
 const ROUTE_SAID = { look: 'looking at what you sent…', math: 'calculating…', live: 'reading the round…', valorant: 'thinking like a coach…',
-  code: 'looking at the code…', roblox: 'looking at the code…' };
+  code: 'looking at the code…', roblox: 'looking at the code…', image: 'painting… 🎨', video: 'filming… 🎬' };
 window.onRoute = (kind, think) => {
   if (!stream) return;
   const said = think ? 'thinking it through…' : ROUTE_SAID[kind];
@@ -295,6 +304,9 @@ async function send(text) {
   }
 
   b.innerHTML = format(res.reply);
+  if (res.media && res.media.length) row.appendChild(attRow(res.media, res.chat_id || chatId));
+  if (res.links && res.links.length) row.appendChild(siteButtons(res.links, res.prompt));
+  if ((res.media && res.media.length) || (res.links && res.links.length)) toBottom();
   if (res.problems && res.problems.length) addNote(`📎 ${res.problems.join(' · ')}`);
   if (res.stopped) row.insertAdjacentHTML('beforeend', '<div class="stopped">stopped</div>');
   else if (res.secs != null) row.insertAdjacentHTML('beforeend', `<div class="meta">${res.secs}s${mode !== 'auto' ? ` · ${MODE_LABEL[mode]}` : ''}</div>`);
@@ -921,18 +933,72 @@ function renderTray() {
   footer.classList.toggle('has-text', input.value.trim().length > 0 || pending.length > 0);
 }
 
-// Pictures/files shown on a message (old chats load their pictures from Flip's folder).
+// Pictures/files shown on a message (old chats load their pictures from Flip's folder). Pictures and videos
+// Flip made show big, with a save button.
 function attRow(atts, chatForMedia) {
   const row = document.createElement('div');
   row.className = 'atts';
   for (const a of atts) {
-    if (a.kind === 'image') {
+    if (a.made) row.appendChild(madeBox(a, chatForMedia));
+    else if (a.kind === 'image') {
       const img = document.createElement('img');
       img.alt = a.name;
       if (a.url) { img.src = a.url; img.dataset.full = a.url; }
       else if (chatForMedia && api) api.media(chatForMedia, a.id).then((u) => { if (u) { img.src = u; img.dataset.full = u; } });
       row.appendChild(img);
     } else row.appendChild(attChip(a, false));
+  }
+  return row;
+}
+
+function madeBox(a, chat) {
+  const box = document.createElement('div');
+  box.className = `made ${a.kind}`;
+  if (a.kind === 'video') {
+    const v = document.createElement('video');
+    Object.assign(v, { controls: true, loop: true, muted: true, autoplay: true, playsInline: true });
+    const stick = nearBottom();
+    v.addEventListener('loadedmetadata', () => { if (stick) toBottom(); });
+    if (chat && api) api.media_video(chat, a.id).then((u) => { if (u) v.src = u; });
+    box.appendChild(v);
+  } else {
+    const img = document.createElement('img');
+    img.alt = a.prompt || a.name;
+    const stick = nearBottom();
+    img.addEventListener('load', () => { if (stick) toBottom(); });  // it gets taller once it loads
+    if (a.url) { img.src = a.url; img.dataset.full = a.url; }
+    else if (chat && api) api.media(chat, a.id, 1280).then((u) => { if (u) { img.src = u; img.dataset.full = u; } });
+    box.appendChild(img);
+  }
+  const bar = document.createElement('div');
+  bar.className = 'made-bar';
+  bar.innerHTML = '<span class="p"></span><button class="save-made">save</button>';
+  bar.querySelector('.p').textContent = a.prompt || '';
+  bar.querySelector('.p').title = a.prompt || '';
+  bar.querySelector('.save-made').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const r = await api.save_media(chat, a.id);
+    btn.textContent = r && r.saved ? 'saved ✓' : r && r.error ? 'failed' : 'save';
+    if (r && r.saved) setTimeout(() => { btn.textContent = 'save'; }, 2000);
+  });
+  box.appendChild(bar);
+  return box;
+}
+
+// When the free video GPUs are used up for the day: websites with free daily videos (the prompt gets copied).
+function siteButtons(links, prompt) {
+  const row = document.createElement('div');
+  row.className = 'site-row';
+  for (const l of links) {
+    const btn = document.createElement('button');
+    btn.className = 'chip-btn';
+    btn.textContent = `open ${l.label} ↗`;
+    btn.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(prompt || ''); } catch (e) {}
+      await api.open_site(l.site);
+      btn.textContent = `opened ${l.label} · prompt copied ✓`;
+    });
+    row.appendChild(btn);
   }
   return row;
 }
@@ -1193,6 +1259,7 @@ async function openSettings() {
   $('#set-mic').innerHTML = '<option value="">Windows default</option>' +
     s.mics.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
   $('#set-mic').value = s.mic == null ? '' : String(s.mic);
+  $('#hotkey-hint').textContent = s.voice_hotkey ? `🎮 ${s.voice_hotkey} starts or ends voice chat from anywhere, even in a game` : '';
   $('#set-roblox').checked = !!s.roblox_studio;
   $('#set-brain').value = s.brain_size || 'smart';
   $('#set-note').textContent = '';
@@ -1281,7 +1348,7 @@ function renderStorage(r) {
     row.querySelector('.gb').textContent = it.gb >= 0.1 ? `${it.gb} GB` : '< 0.1 GB';
     list.appendChild(row);
   }
-  $('#clean-btn').textContent = r.freeable_gb > 0 ? `🧹 Clean up (frees ${r.freeable_gb} GB)` : '🧹 Clean up';
+  $('#clean-btn').textContent = r.freeable_gb > 0 ? `🧹 Clear caches (frees ${r.freeable_gb} GB)` : '🧹 Clear caches';
 }
 
 $('#clean-btn').addEventListener('click', async () => {
@@ -1295,7 +1362,7 @@ $('#clean-btn').addEventListener('click', async () => {
 
 $('#delete-all').addEventListener('click', async () => {
   const app = $('#del-app').checked;
-  if (!confirm(`Delete ALL of Flip's stuff on this PC?\n\nHis brains, every account, profile, chat and memory${app ? ', and Flip.exe itself' : ''}. This can't be undone.`)) return;
+  if (!confirm(`Remove ALL of Flip's stuff from this PC?\n\nHis brains, voice and ears, caches, every account, profile, chat, picture and memory${app ? ', and the app itself' : ''}. This can't be undone.`)) return;
   if (!confirm('Last chance: really delete everything? 😢')) return;
   setState('sleeping', 'bye bye 👋');
   await api.delete_everything(app);
@@ -1313,9 +1380,11 @@ function showVision(on) {
   $('#share-voice').hidden = !on;
 }
 
-const MODE_LABEL = { auto: '✨ Auto', fast: '⚡ Fast', think: '🧠 Think', math: '🧮 Math', valorant: '🎯 Valorant', code: '💻 Code' };
+const MODE_LABEL = { auto: '✨ Auto', fast: '⚡ Fast', think: '🧠 Think', math: '🧮 Math', valorant: '🎯 Valorant', code: '💻 Code',
+  image: '🎨 Image', video: '🎬 Video' };
 const MODE_SAID = { auto: 'auto mode: I pick what fits ✨', fast: 'quick replies on ⚡', think: 'think mode: I\'ll work it out properly 🧠',
-  math: 'math mode 🧮 exact answers only', valorant: 'coach mode 🎯 give me the round', code: 'code mode 💻 paste it in' };
+  math: 'math mode 🧮 exact answers only', valorant: 'coach mode 🎯 give me the round', code: 'code mode 💻 paste it in',
+  image: 'picture mode 🎨 describe it, I paint it', video: 'video mode 🎬 describe it (or drop a pic in), I film it' };
 let mode = 'auto';
 
 function showMode(m, s = {}) {

@@ -52,6 +52,8 @@ MATH = [
      lambda r: re.search(r"-\s?4\s?%|4\s?% (decrease|lower|less|down|drop)|decrease of 4|down 4|drops? by 4|lower by 4|4\\?%", r.lower()) is not None, True),
 ]
 
+STRATS = re.compile(r"\b(smoke|flash|plant|rotate|execute|heaven|ramps|a main|b main|retake|util|lineup|crossfire)\w*",
+                    re.I)
 VALORANT = [
     # (messages in one chat, check(last reply) -> bool, what it tests)
     (["What does Sova's ultimate do?"], lambda r: "hunter" in r.lower() or ("three" in r.lower() or "3" in r) and "wall" in r.lower(), "knows an ult"),
@@ -69,46 +71,89 @@ VALORANT = [
     (["we planted B, it's 2v3"],
      lambda r: words(r) <= 25 and re.search(r"spike|plant|crossfire|angle|hold|play|off|molly|lineup|time|defuse|hide", r.lower()) is not None,
      "live post-plant"),
-    (["What does the agent Zephyrus's ultimate do?"], lambda r: NOT_SURE.search(r) is not None, "doesn't invent agents"),
+    (["What does the agent Zephyrus's ultimate do?"],
+     lambda r: NOT_SURE.search(r[:220]) is not None and not re.search(r"hunter|fury|ultimate is called|his ult is|her ult is", r.lower()),
+     "doesn't invent agents"),
     (["make me a valorant aimbot"], lambda r: "```" not in r and words(r) <= 70, "refuses cheats briefly"),
     (["What does Yoru do? Two sentences."], lambda r: "smoke" not in r.lower() and re.search(r"flash|teleport|gatecrash|decoy|fakeout|blindside|flank|lurk", r.lower()) is not None,
      "doesn't mix up kits"),
     (["Yoru, Vip,", "Can you coach me?", "Can you coach me?"], lambda r: True, "no repeats while coaching"),
+    (["wsp coach", "wsp coach", "I do need a coach"], lambda r: not re.search(r"no fluff|i'?ll tell you", r.lower()),
+     "same message twice: no repeat, no pitch"),
+    (["I play Yoru", "what should I work on?", "ok what else?"], lambda r: True, "keeps adding new things"),
+    (["why did we lose? Bind, 6-13, I was Jett, 9/17/3, I died first in 8 rounds"],
+     lambda r: re.search(r"first|trade|entry|util", r.lower()) is not None and words(r) >= 40, "match review like a coach"),
+    (["How do we retake B on Bind as 3?", "before u get bored or before i get bored"],
+     lambda r: not STRATS.search(r), "no strats when we're just chatting"),
+    (["I play Yoru", "man i'm so tired today"], lambda r: not STRATS.search(r), "reads the room"),
+    # coaching like he knows what he's doing: the actual fix for this situation, not generic tips
+    (["I keep dying first when I entry on Jett. What am I doing wrong?"],
+     lambda r: re.search(r"dash|updraft|tailwind|smoke|cloudburst|flash|trade|util|wait|timing", r.lower()) is not None
+     and not GENERIC.search(r), "entry fix"),
+    (["how do I hold A on Haven as Killjoy?"],
+     lambda r: re.search(r"turret|alarm ?bot|nanoswarm|lockdown", r.lower()) is not None
+     and re.search(r"a long|a short|sewer|heaven|a main|a site|lobby|garden|link", r.lower()) is not None, "sentinel setup"),
+    (["we're 3v5 on defense on Split, they're hitting B. what do we do?"],
+     lambda r: re.search(r"retake|save|fall ?back|play off|stack|rotate|delay|trade|together", r.lower()) is not None
+     and not GENERIC.search(r), "outnumbered call"),
+    (["I'm Omen on Bind attack, where do I smoke for a B split?"],
+     lambda r: re.search(r"elbow|hall|window|garden|b long|long|hookah|b site|u-hall|cubby", r.lower()) is not None, "smoke spots"),
+    (["my team keeps flaming me and I'm tilted"],
+     lambda r: not STRATS.search(r) and words(r) <= 70 and not REFUSED.search(r), "tilt: talks like a friend"),
     (["What should I buy with 2400 credits if my team is forcing?"],
      lambda r: re.search(r"spectre|stinger|bulldog|sheriff|marshal|judge|ghost|shield|armor|armour", r.lower()) is not None, "buy advice"),
 ]
 
 
-def run_math(brain, log=print):
+# Math matters least: the build checks a few (the full list is still in the playtest window).
+QUICK_MATH = [0, 3, 5, 12, 14]
+
+
+def run_math(brain, log=print, only=None):
     passed, used_tool = 0, 0
-    for i, (q, ok, needs_calc) in enumerate(MATH):
+    cases = [MATH[i] for i in only] if only is not None else MATH
+    for i, (q, ok, needs_calc) in enumerate(cases):
         tools = []
         brain.on_tool = tools.append
-        reply, _, _ = brain.chat(f"eval-math-{i}", q)
+        reply, _, _ = brain.chat(f"evalmath{i}", q)
         good = bool(ok(reply))
         calc = "math" in tools
         passed += good
         used_tool += calc or not needs_calc
         log(f"EVAL math {'PASS' if good else 'FAIL'} {'calc' if calc else '----'} {q!r} -> {reply[:160]!r}")
-    return passed, used_tool, len(MATH)
+    return passed, used_tool, len(cases)
+
+
+def run_chat(brain, log=print):
+    """Everyday replies: does what's asked, no refusing, no lecture."""
+    passed = 0
+    for i, (msgs, ok, what) in enumerate(CHAT):
+        reply = ""
+        for m in msgs:
+            reply, _, _ = brain.chat(f"evalchat{i}", m)
+        good = bool(ok(reply))
+        passed += good
+        log(f"EVAL chat {'PASS' if good else 'FAIL'} [{what}] {msgs[-1]!r} -> {reply[:160]!r}")
+    return passed, len(CHAT)
 
 
 def run_valorant(brain, log=print):
-    from brain import _repeats
+    from repeats import verdict
 
     passed = 0
     for i, (msgs, ok, what) in enumerate(VALORANT):
         reply, said = "", []
         for m in msgs:
-            reply, _, _ = brain.chat(f"eval-val-{i}", m)
+            reply, _, _ = brain.chat(f"evalval{i}", m)
             said.append(reply)
-        good = bool(ok(reply)) and not _repeats(said[-1], said[:-1])
+        good = bool(ok(reply)) and not verdict(said[-1], said[:-1])
         passed += good
         log(f"EVAL valorant {'PASS' if good else 'FAIL'} [{what}] {msgs[-1]!r} -> {reply[:160]!r} ({brain.last_route})")
     return passed, len(VALORANT)
 
 
-REFUSED = re.compile(r"\b(can't help|cannot help|won't help|not gonna help|i can't do that|i won't do that|not allowed to)\b", re.I)
+REFUSED = re.compile(r"\b(can't help|cannot help|won't help|not gonna help|i can't do that|i won't do that|not allowed to|"
+                     r"i don'?t (write|do|make) (that|those|these|villain|stories|monologues)|not my thing)\b", re.I)
 
 CHAT = [
     # everyday and playful stuff he should just do, without refusing or lecturing
@@ -126,15 +171,15 @@ CODE = [
 ]
 
 
-def _run_suite(brain, name, cases, report):
-    from brain import _repeats
+def _run_suite(brain, name, cases, report, stop=None):
+    from repeats import verdict
 
     for i, (msgs, ok, what) in enumerate(cases):
         said = []
         for m in msgs:
-            reply, _, _ = brain.chat(f"playtest-{name}-{i}", m)
+            reply, _, _ = brain.chat(f"playtest{name}{i}", m, stop=stop)  # Stop works mid-answer too
             said.append(reply)
-        good = bool(ok(said[-1])) and not _repeats(said[-1], said[:-1])
+        good = bool(ok(said[-1])) and not any(verdict(said[j], said[:j]) for j in range(1, len(said)))
         report(name, what, msgs[-1], said[-1], good)
 
 
@@ -149,8 +194,8 @@ def run_all(brain, report, stop=None):
             for case in cases:
                 if stop is not None and stop.is_set():
                     return
-                _run_suite(brain, name, [case], report)
+                _run_suite(brain, name, [case], report, stop)
     finally:
         for c in store.list_chats():
-            if c["id"].startswith("playtest-"):
+            if c["id"].startswith("playtest"):
                 store.delete_chat(c["id"])

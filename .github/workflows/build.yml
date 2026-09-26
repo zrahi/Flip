@@ -11,7 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 150
+    timeout-minutes: 210
     steps:
       - uses: actions/checkout@v4
 
@@ -38,7 +38,7 @@ jobs:
             "--add-data", "ui;ui", "--add-data", "knowledge;knowledge", "--add-data", "version.txt;.", "--add-data", "personality.txt;.", "--add-data", "flip.ico;.",
             "--collect-all", "faster_whisper", "--collect-all", "ctranslate2", "--collect-all", "onnxruntime",
             "--collect-all", "webview", "--collect-data", "edge_tts", "--hidden-import", "mcp.client.stdio",
-            "--collect-all", "kokoro_onnx", "--collect-all", "espeakng_loader", "--collect-all", "phonemizer",
+            "--collect-all", "gradio_client", "--collect-all", "openvino", "--collect-all", "kokoro_onnx", "--collect-all", "espeakng_loader", "--collect-all", "phonemizer",
             "--collect-all", "language_tags", "--collect-all", "segments", "--collect-all", "csvw",
             "--hidden-import", "pystray._win32", "--hidden-import", "clr",
             "app.py"
@@ -85,6 +85,19 @@ jobs:
           if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Flip.lnk")) { Write-Output "::error title=Install::no Start menu shortcut"; exit 1 }
           Write-Output "::notice title=Install::installed to $exe"
 
+      - name: Update from an old single-file Flip (it runs this installer as its new Flip.exe)
+        shell: pwsh
+        run: |
+          $old = "$env:RUNNER_TEMP\oldflip"
+          New-Item -ItemType Directory -Force $old | Out-Null
+          Copy-Item dist\FlipSetup.exe "$old\Flip.exe"
+          $p = Start-Process -FilePath "$old\Flip.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/NOLAUNCH" -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or -not (Test-Path "$env:LOCALAPPDATA\Programs\Flip\Flip.exe")) { Write-Output "::error title=Old update::installer exit $($p.ExitCode)"; exit 1 }
+          $deadline = (Get-Date).AddSeconds(90)
+          while ((Test-Path "$old\Flip.exe") -and (Get-Date) -lt $deadline) { Start-Sleep 1 }
+          if (Test-Path "$old\Flip.exe") { Write-Output "::error title=Old update::the old Flip.exe (now the installer) was left behind"; exit 1 }
+          Write-Output "::notice title=Old update::an old single-file Flip updates into the installed one and its old copy is gone"
+
       - name: Real brain test (downloads llama.cpp + a small seeing brain, chats, looks at a picture)
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -130,6 +143,7 @@ jobs:
           if (-not $results) { $results = "NO RESULTS`n" + ((Get-Content "$env:FLIP_HOME\flip.log" -Tail 40) -join "`n") }
           Write-Output $results
           ($results -split "`n") | Where-Object { $_ -match '^(PASS|FAIL|NO)' } | ForEach-Object { Write-Output "::notice title=App test::$_" }
+          ($results -split "`n") | Where-Object { $_ -match '^WARN' } | ForEach-Object { Write-Output "::warning title=App test::$_" }
           New-Item -ItemType Directory -Force shots | Out-Null
           Copy-Item "$env:FLIP_AUTOTEST\*" shots -ErrorAction SilentlyContinue
           Copy-Item "$env:FLIP_HOME\flip.log" shots\flip-log.txt -ErrorAction SilentlyContinue
@@ -155,6 +169,7 @@ jobs:
           Write-Output "::notice title=Uninstall::removed cleanly"
 
       - name: Publish release
+        if: github.ref == 'refs/heads/main'  # a run on another branch tests everything but doesn't release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
@@ -164,3 +179,10 @@ jobs:
           gh release create "v1.${{ github.run_number }}" dist/FlipSetup.exe dist/Flip.exe `
             --title "Flip v1.${{ github.run_number }}" `
             --notes "Download **FlipSetup.exe** below, run it once, and Flip is installed (desktop + Start menu). After that, updates come through the Update button in Flip."
+          # every older Flip must see it: the newest release has to carry both names
+          $names = (gh release view "v1.${{ github.run_number }}" --json assets --jq ".assets[].name") -join ","
+          $latest = gh release view --json tagName --jq ".tagName"
+          if ($names -notmatch "FlipSetup.exe" -or $names -notmatch "(^|,)Flip.exe" -or $latest -ne "v1.${{ github.run_number }}") {
+            Write-Output "::error title=Release::assets: $names, latest: $latest"; exit 1
+          }
+          Write-Output "::notice title=Release::v1.${{ github.run_number }} is the latest, with $names (old and new Flips can update)"

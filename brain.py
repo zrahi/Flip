@@ -10,14 +10,16 @@ import time
 import attachments
 import knowledge
 import mathtool
+import repeats
 import router
 import store
 import usage
+import web
 
 log = logging.getLogger("flip")
 
 MAX_HISTORY = 30       # messages from the current chat the AI sees
-MAX_TOOL_STEPS = 15    # tool uses per message before he stops
+MAX_TOOL_STEPS = 8     # tool uses per message; the last step has to answer
 MAX_TOOL_OUTPUT = 4000 # characters of tool output the AI gets to see
 
 MEMORY_TOOLS = [
@@ -37,6 +39,7 @@ MEMORY_TOOLS = [
 
 
 REPLY_ROOM = 1500      # tokens kept free for his answer
+REDO_TOKENS = 300      # a redo of a repeat: a few fresh sentences, not a whole new essay (keeps it quick)
 
 # Words that mean the chat is about Roblox, so Roblox Studio's tools should come along.
 ROBLOX_WORDS = ["roblox", "studio", "luau", "lua", "script", "houseflipper", "house flipper", "workspace",
@@ -46,6 +49,11 @@ ROBLOX_WORDS = ["roblox", "studio", "luau", "lua", "script", "houseflipper", "ho
 
 class NoModelError(Exception):
     pass
+
+
+def base_tools():
+    """The tools he always has: memory, the calculator and web search."""
+    return list(MEMORY_TOOLS) + [mathtool.TOOL, web.TOOL]
 
 
 def estimate_tokens(content):
@@ -79,6 +87,7 @@ def clean_reply(text):
     # Reasoning models put their thinking in <think> tags; don't show or say it.
     if "</think>" in text:
         text = text.split("</think>")[-1]
+    text = TOOL_TEXT.sub("", text).split("<tool_call>", 1)[0]  # (a call written as text is never shown)
     return text.strip()
 
 
@@ -138,6 +147,7 @@ class LocalBackend:
 
         self.client = OpenAI(base_url=url, api_key=api_key or "local", timeout=600)
         self.model = ""
+        self.context = 8192  # tokens the brain can hold (engine.CONTEXT)
 
     def _pick_model(self):
         if not self.model:
@@ -152,18 +162,19 @@ class LocalBackend:
         return [{"type": "function", "function": {"name": t["name"], "description": t["description"],
                                                   "parameters": t["schema"]}} for t in tools]
 
-    def _kwargs(self, messages, spec, max_tokens=None, temperature=0.7):
+    def _kwargs(self, messages, spec, max_tokens=None, temperature=0.7, redo=False):
         kwargs = {"model": self._pick_model(), "messages": messages,
-                  # Qwen's recommended settings for chatting.
-                  "temperature": temperature, "top_p": 0.8, "presence_penalty": 1.0,
+                  # Qwen's recommended settings for chatting (Qwen3-VL: presence penalty 1.5 against repeats).
+                  "temperature": temperature, "top_p": 0.8, "presence_penalty": 1.8 if redo else 1.5,
                   "extra_body": {
                       # Qwen3 brains have a hidden "thinking" mode that writes a long essay before every
                       # answer. Turn it off: answers come way faster.
                       "chat_template_kwargs": {"enable_thinking": False},
                       "top_k": 20, "repeat_penalty": 1.05,
                       # DRY: makes it costly to copy word sequences that are already anywhere in the chat,
-                      # so he can't paste his earlier replies again.
-                      "dry_multiplier": 0.8, "dry_base": 1.75, "dry_allowed_length": 3, "dry_penalty_last_n": 8192,
+                      # so he can't paste his earlier replies again (harder on a redo of a repeat).
+                      "dry_multiplier": 1.2 if redo else 0.8, "dry_base": 1.75, "dry_allowed_length": 3,
+                      "dry_penalty_last_n": 8192,
                   }}
         if spec:
             kwargs["tools"] = spec
@@ -176,14 +187,22 @@ class LocalBackend:
         messages = [{"role": "system", "content": system}, {"role": "user", "content": "hi"}]
         self.client.chat.completions.create(**self._kwargs(messages, self._spec(tools), max_tokens=1))
 
-    def answer(self, system, history, tools, run_tool, on_text=None, stop=None, max_tokens=None, temperature=0.7):
+    def answer(self, system, history, tools, run_tool, on_text=None, stop=None, max_tokens=None, temperature=0.7,
+               redo=False):
         """Runs the model (and any tools it asks for). Streams text through on_text as it's written.
-        Returns (reply, stopped)."""
+        Returns (reply, stopped). redo: he's redoing a reply that repeated himself."""
         messages = [{"role": "system", "content": system}] + history
         spec = self._spec(tools)
-        shown = ""
-        for _ in range(MAX_TOOL_STEPS):
-            kwargs = self._kwargs(messages, spec, max_tokens, temperature)
+        shown, nudged = "", False
+        for step in range(MAX_TOOL_STEPS + 1):  # (+1: room for one nudge to answer)
+            # No more tools on the last step, or once the chat plus tool results nearly fill what the brain can
+            # hold: he has to answer now. (A math problem called the calculator until the request no longer
+            # fit, and the fallback then looped for half an hour on a processor.)
+            used = sum(estimate_tokens(m.get("content") or "") + len(json.dumps(m.get("tool_calls") or "")) // 3
+                       for m in messages)
+            if step >= MAX_TOOL_STEPS - 1 or used + min(max_tokens or 800, REPLY_ROOM) > self.context * 0.85:
+                spec = []
+            kwargs = self._kwargs(messages, spec, max_tokens, temperature, redo)
             kwargs["stream"] = True
             stream = self.client.chat.completions.create(**kwargs)
             text, calls = "", {}
@@ -208,6 +227,15 @@ class LocalBackend:
                             c["args"] += tc.function.arguments or ""
             finally:
                 stream.close()
+            if not calls and "<tool_call>" in text:
+                calls = text_tool_calls(text) if spec else {}
+                text = text.split("<tool_call>", 1)[0]
+                if not calls and not (shown + text).strip() and not nudged:
+                    # it asked for a tool it can't have now (the last step has none): nudge it to answer
+                    nudged = True
+                    messages.append({"role": "user", "content": "(No more tools or searching: answer me now with what "
+                                                                 "you already know.)"})
+                    continue
             if not calls:
                 return clean_reply(shown + text), False
             shown += visible(text)
@@ -228,7 +256,7 @@ class LocalBackend:
                     args = {}
                 messages.append({"role": "tool", "tool_call_id": c["id"] or f"call_{i}",
                                  "content": run_tool(c["name"], args)})
-        return clean_reply(shown) + "\n\nbro I did like 15 steps and got lost 😭 tell me to keep going", False
+        return clean_reply(shown), False  # (not reached: the last step has no tools, so it answers)
 
 
 def window_start(n):
@@ -250,34 +278,6 @@ class _Either:
         return any(e.is_set() for e in self.events)
 
 
-def _starts_like(start, earlier):
-    """True if a reply that starts like this is heading for one of the earlier replies."""
-    import difflib
-
-    norm = lambda t: re.sub(r"[^a-z0-9 ]", "", t.lower()).strip()
-    s = norm(start)
-    for e in earlier:
-        e = norm(e)[: len(s) + 5]
-        if e and (difflib.SequenceMatcher(None, s, e).ratio() > 0.75 or s[:25] == e[:25]):
-            return True
-    return False
-
-
-def _repeats(reply, earlier):
-    """True if the reply is (nearly) one of his earlier replies, or starts the same way."""
-    import difflib
-
-    norm = lambda t: re.sub(r"[^a-z0-9 ]", "", t.lower()).strip()
-    r = norm(reply)
-    for e in earlier:
-        e = norm(e)
-        if not e:
-            continue
-        if difflib.SequenceMatcher(None, r, e).ratio() > 0.6 or (len(r) > 20 and r[:25] == e[:25]):
-            return True
-    return False
-
-
 def parse_skill(text):
     """A skill file can start with a line like "KEYWORDS: valorant, jett, ..."; it's only used when
     the chat mentions one of them. Without that line it's always used."""
@@ -288,8 +288,28 @@ def parse_skill(text):
     return {"keywords": [""], "text": text.strip()}
 
 
+TOOL_TEXT = re.compile(r"<tool_call>\s*(\{.*?\})\s*(?:</tool_call>|$)", re.S)
+
+
+def text_tool_calls(text):
+    """Tool calls a small brain wrote out as text ("<tool_call>{"name": "web_search", …}</tool_call>")
+    instead of as real calls: {index: {"id", "name", "args"}}."""
+    calls = {}
+    for i, m in enumerate(TOOL_TEXT.finditer(text)):
+        try:
+            call = json.loads(m.group(1))
+        except ValueError:
+            continue
+        if isinstance(call, dict) and call.get("name"):
+            calls[i] = {"id": f"text_call_{i}", "name": call["name"], "args": json.dumps(call.get("arguments") or {})}
+    return calls
+
+
 def visible(text):
-    """The part of a streamed reply that's okay to show (hides <think>…</think> blocks)."""
+    """The part of a streamed reply that's okay to show (hides <think>…</think> blocks and tool calls
+    written out as text)."""
+    if "<tool_call>" in text:
+        text = text.split("<tool_call>", 1)[0]
     if "<think>" in text:
         before, _, rest = text.partition("<think>")
         return before + (rest.split("</think>", 1)[1] if "</think>" in rest else "")
@@ -309,6 +329,7 @@ class Brain:
         self.knowledge = knowledge.load()
         self.last_route = None
         self.last_stats = {}
+        self.on_cpu = False  # the brain runs on the processor (no graphics card): keep what it reads short
         self.on_tool = lambda name: None
         self.on_route = lambda way: None
         self.roblox = RobloxLink(settings["roblox_command"]) if settings.get("roblox_studio") else None
@@ -344,7 +365,7 @@ class Brain:
         return "\n\n".join(parts)
 
     def _tools(self, topic=""):
-        tools = list(MEMORY_TOOLS) + [mathtool.TOOL]  # always there, so the brain's cached work stays valid
+        tools = base_tools()  # always there, so the brain's cached work stays valid
         # Roblox Studio's tools are big, so they only come along when the chat is about Roblox.
         if self.roblox and self.roblox.status == "connected" and any(k in topic.lower() for k in ROBLOX_WORDS):
             tools += self.roblox.tools
@@ -355,9 +376,9 @@ class Brain:
         Drops the oldest messages first, then Roblox tools. Returns (history, tools)."""
         budget = int(self.settings.get("context", 8192)) - REPLY_ROOM
         fixed = estimate_tokens(system) + estimate_tokens(json.dumps(tools))
-        if fixed > budget * 0.7 and len(tools) > len(MEMORY_TOOLS) + 1:
+        if fixed > budget * 0.7 and len(tools) > len(base_tools()):
             log.warning("Tools too big (%d tokens), leaving Roblox tools out", fixed)
-            tools = list(MEMORY_TOOLS) + [mathtool.TOOL]
+            tools = base_tools()
             fixed = estimate_tokens(system) + estimate_tokens(json.dumps(tools))
         kept = list(history)
         while len(kept) > 1 and fixed + sum(estimate_tokens(m["content"]) for m in kept) > budget:
@@ -383,6 +404,16 @@ class Brain:
                 text = mathtool.run(args)
                 log.info("math %s -> %s", args, text)
                 return text
+            if name == "web_search":
+                way = getattr(self, "last_route", None)
+                if way is not None and way.kind in ("review", "live"):
+                    return "(Not needed: answer from what they told you and your notes, right now.)"
+                self._searches = getattr(self, "_searches", 0) + 1
+                if self._searches > 1:  # one search per reply is enough: more only makes a CPU reply slower
+                    return "(You already searched. Answer now with what you found.)"
+                text = web.lookup(str(args.get("query", "")), limit=2000)
+                log.info("web search %r -> %d characters", args.get("query"), len(text))
+                return text[:MAX_TOOL_OUTPUT]
             text = self.roblox.call(name, args) if self.roblox else "ERROR: unknown tool"
         except Exception as e:
             text = f"ERROR: {e}"
@@ -395,11 +426,18 @@ class Brain:
         """attached: pictures/files that came with the message (see attachments.take)."""
         chat = store.load_chat(chat_id) or store.new_chat(chat_id)
         history = [{"role": m["role"], "content": m["content"]} for m in chat["messages"][window_start(len(chat["messages"])):]]
+        history = repeats.dedupe(history)  # he doesn't get to see (and copy) the times he repeated himself
         recent = " ".join(str(m["content"]) for m in history[-4:])
+        before = next((m["content"] for m in reversed(history) if m["role"] == "user" and isinstance(m["content"], str)), "")
+        user_repeated = bool(before) and repeats.same_message(text, before)
         topic = recent + " " + text
         mode = self.settings.get("mode") or ("fast" if self.settings.get("fast_mode") else "auto")
-        way = router.route(text, mode, recent, voice)
+        # what they said decides the kind of help (his own replies mentioning Valorant dragged "do you see my
+        # screen?" into coaching)
+        theirs = " ".join(str(m["content"]) for m in history[-4:] if m["role"] == "user")
+        way = router.route(text, mode, theirs, voice, pictures=sum(a["kind"] == "image" for a in attached) + bool(image))
         self.last_route = way
+        self._searches = 0
         log.info("%s", way)
         self.on_route(way)
         prompt = text
@@ -409,8 +447,10 @@ class Brain:
             if way.kind == "live":
                 notes.append(router.describe_match(chat["match"]))
         tags = set(way.tags)
+        # every word of notes has to be read before he answers: on a processor that's the slow part, so less
+        budget = (2500 if voice or way.kind == "live" else 5000) // (2 if self.on_cpu else 1)
         chosen = knowledge.pick(self.knowledge, text + " " + (recent[-600:] if way.kind != "chat" else ""), tags,
-                                budget=2500 if voice or way.kind == "live" else 5000) if tags or way.kind != "chat" else []
+                                budget=budget) if tags or way.kind != "chat" else []
         low = (text + " " + recent[-300:]).lower()
         extra = [sk["text"] for sk in self.skills if sk["keywords"] != [""] and any(k in low for k in sk["keywords"])]
         if chosen or extra:
@@ -425,16 +465,30 @@ class Brain:
                              "; ".join(f"{q} → {a}" for q, a in done) + ")")
         if way.note:
             notes.append(way.note)
+        if way.search:  # patch, meta, lineups…: things that change get looked up first
+            self.on_tool("web_search")
+            usage.record(tool="web_search")
+            try:
+                found = web.lookup(way.search, limit=1200 if self.on_cpu else 2500)
+            except Exception as e:
+                found = f"(the web search didn't work: {e})"
+            log.info("Looked up %r (%d characters)", way.search, len(found))
+            notes.append("(Looked this up on the web just now. Use it for anything current, say briefly that you "
+                         "looked it up, and give the links when I asked for lineups or videos. If it doesn't answer "
+                         "my question, say so:\n" + found + ")")
+        if user_repeated and way.kind not in ("live", "math", "code", "roblox"):
+            notes.append(repeats.USER_REPEATED)
         if voice:
             notes.append("(Voice call, transcribed from my voice, so ignore missing punctuation. Answer first, in 1-3 "
                          "short spoken sentences. No intro, no filler like \"Sure!\" or \"Great question\", don't repeat "
                          "my question, no emojis, lists, code, LaTeX or markdown. More detail only if I ask.)")
         if notes:
             prompt += "\n\n" + "\n\n".join(notes)
-        earlier = [m["content"] for m in history if m["role"] == "assistant"][-4:]
+        earlier = [m["content"] for m in history if m["role"] == "assistant" and isinstance(m["content"], str)][-12:]
         if earlier:
             # small brains love to paste their last reply again; a nudge right next to the message helps most
-            prompt += "\n\n(Reply to exactly this message. Don't reuse lines from your earlier replies, and don't open with \"Ayy\", \"Yo\" or my name.)"
+            prompt += ("\n\n(Reply to exactly this message with something new: don't reuse lines, questions or openers "
+                       "from your earlier replies, and don't open with \"Ayy\", \"Yo\" or my name.)")
         if not image and re.search(r"\b(see|look at|seeing)\b.*\bscreen\b", text, re.I):
             prompt += "\n\n(I'm not sharing my screen right now, so you can't see it. Tell me to hit the share screen button.)"
         pictures = [a for a in attached if a["kind"] == "image"]
@@ -459,91 +513,117 @@ class Brain:
         started, first = time.time(), [None]
         self.last_times = {"request": started}  # filled in as it happens (the voice timing reads it mid-reply)
 
-        # Repeat guard: the first ~30 characters are held back and compared with his earlier replies. If
-        # he's starting to say the same thing again, the reply is cut right there and redone (nothing was
-        # shown or spoken yet), instead of redoing a whole finished reply.
-        held, gate, abort = [], {"open": not earlier}, threading.Event()
-        halt = _Either(stop, abort)
+        # Repeat guard (see repeats.py). While he writes, the first sentence is held back and checked against
+        # his earlier replies (in voice calls every sentence is, since he can't take back what he said), and a
+        # finished reply is judged as a whole. A repeat is redone once, with the failed try in view and a note
+        # to say something new: that only adds to the end of the chat, so the brain keeps its work on the rest.
+        # If even the redo repeats, the repeated sentences go, or a short line that isn't a repeat replaces it.
+        check = way.kind in ("chat", "valorant") and not repeats.asks_again(text)
+        compare = earlier if check else []
 
-        def release():
-            gate["open"] = True
-            if on_text and held:
-                on_text("".join(held))
+        def emit(piece):
+            if on_text:
+                on_text(piece)
 
-        def stream_text(piece):
-            if first[0] is None:
-                first[0] = time.time()
-                self.last_times["first_token"] = first[0]
-            if gate["open"]:
-                if on_text:
-                    on_text(piece)
-                return
-            held.append(piece)
-            so_far = "".join(held)
-            if len(so_far.strip()) >= 30:
-                if _starts_like(so_far, earlier):
-                    abort.set()
-                else:
-                    release()
+        def attempt(messages, compare_to, redo=False, cap=None):
+            watch = repeats.Watch(compare_to, emit, every=voice, redo=redo, strict=user_repeated)
+
+            def feed(piece):
+                if first[0] is None:
+                    first[0] = time.time()
+                    self.last_times["first_token"] = first[0]
+                watch.feed(piece)
+
+            got, halted = self.backend.answer(system, messages, tools, self._run_tool, feed, _Either(stop, watch),
+                                              max_tokens=cap or (min(limit, REDO_TOKENS) if redo else limit),
+                                              temperature=1.0 if redo else way.temperature, redo=redo)
+            if stop is not None and stop.is_set():
+                watch.flush()  # the stop button: what he was in the middle of saying still shows
+            elif halted and watch.stopped:
+                halted = False  # the watch cut him off (a repeat), not the stop button
+            else:
+                watch.finish()
+            return got, halted, watch
 
         system = self._system(topic)
         history, tools = self._fit(system, history, self._tools(topic))
         try:
-            reply, stopped = self.backend.answer(system, history, tools, self._run_tool,
-                                                 stream_text, halt, max_tokens=limit, temperature=way.temperature)
+            got, stopped, watch = attempt(history, compare)
         except Exception as e:
             if "exceed_context_size" not in str(e) and "context" not in str(e).lower():
                 raise
             log.warning("Still too long for the brain, retrying short: %s", e)  # guesses were off; go minimal
-            reply, stopped = self.backend.answer(self._system(), history[-2:], list(MEMORY_TOOLS), self._run_tool,
-                                                 stream_text, halt, max_tokens=limit, temperature=way.temperature)
-        if not gate["open"] and not stopped and _starts_like("".join(held), earlier):
-            abort.set()  # a short reply that never reached 30 characters, but it's still a copy
-        if abort.is_set() and not (stop is not None and stop.is_set()):
-            log.info("Started repeating an earlier reply, redoing it: %s", "".join(held)[:80])
-            gate["open"], held[:] = True, []
-            last = history[-1]
-            nudge = (f"\n\n(Don't repeat your earlier answer. Reply to exactly what I just said: \"{text}\". "
-                     f"If it's unclear what I mean, ask me a quick question instead.)")
-            content = last["content"]
-            if isinstance(content, list):
-                content = [dict(content[0], text=content[0]["text"] + nudge)] + content[1:]
-            else:
-                content += nudge
-            # He copies the pattern of his own earlier replies, so the look-alikes leave the context for the redo
-            attempt = "".join(held) or reply or ""
-            cleaned = [m if m["role"] != "assistant" or not _starts_like(attempt, [m["content"]])
-                       else {"role": "assistant", "content": "(an earlier reply, left out)"} for m in history[:-1]]
-            again = [e for e in earlier if not _starts_like(attempt, [e])]
-            held[:], gate["open"], abort2 = [], not again, threading.Event()
-            earlier[:] = again
-            abort.clear()
-            reply, stopped = self.backend.answer(system, cleaned + [{"role": "user", "content": content}], tools,
-                                                 self._run_tool, stream_text, _Either(stop, abort), max_tokens=limit,
-                                                 temperature=1.0)
-            if abort.is_set() and not (stop is not None and stop.is_set()):
-                stopped = False  # copied yet another old reply: keep what came, don't loop
-            if not gate["open"]:
-                release()
-        elif not gate["open"] and not stopped:
-            release()  # a short reply that never reached the check
-        # (not in voice calls: he's already saying it out loud, and a redo costs a whole reply of time)
-        if not stopped and reply and not voice and not abort.is_set() and _repeats(reply, earlier):
-            # Still said the same thing as before: throw it away and try again, told plainly this time.
-            log.info("Reply repeated an earlier one, retrying: %s", reply[:80])
-            if on_reset:
+            system, history, tools = self._system(), history[-2:], list(MEMORY_TOOLS)
+            got, stopped, watch = attempt(history, compare)
+        reply = watch.text()
+        why = watch.why
+        if not why and not stopped and not voice and way.kind not in ("code", "roblox"):
+            why = repeats.echoes(reply, [system, text])
+            if why and on_reset:
                 on_reset()
-            last = history[-1]
-            nudge = (f"\n\n(Your first try repeated what you said earlier: \"{short(reply, 120)}\". "
-                     f"That's not allowed. Write a completely different reply that actually responds to: \"{text}\")")
-            content = last["content"]
-            if isinstance(content, list):
-                content = [dict(content[0], text=content[0]["text"] + nudge)] + content[1:]
-            else:
-                content += nudge
-            retry = history[:-1] + [{"role": "user", "content": content}]
-            reply, stopped = self.backend.answer(system, retry, tools, self._run_tool, stream_text, stop,
-                                                 max_tokens=limit, temperature=1.0)
+        if check and not why and not stopped and not voice:
+            why = repeats.too_similar(reply, compare)
+            if why and on_reset:
+                on_reset()  # it was on screen already: clear it for the redo
+        if why and not stopped and not (voice and reply):  # (in a call, what he already said stays said)
+            tried = got.strip() or reply
+            log.info("Repeating (%s), redoing: %s", why, short(tried, 100))
+            note = (repeats.ECHO_NOTE if why.startswith("echoes") else repeats.REDO_NOTE) + (
+                " (Voice call: 1-2 short spoken sentences.)" if voice else "")
+            compare = compare + [tried]
+            # a new question gets its redo answered in full (cutting it off at "You main Jett…" left nothing);
+            # the same message again gets the redo watched just as closely
+            got, stopped, watch = attempt(history + [{"role": "assistant", "content": tried},
+                                                     {"role": "user", "content": note}],
+                                          compare if user_repeated or voice else [], redo=True)
+            reply = watch.text()
+            still = "" if stopped else watch.why or (not voice and repeats.too_similar(reply, compare))
+            if still:
+                log.info("The redo repeated too (%s): %s", still, short(got, 100))
+                if voice:
+                    if not reply:  # stopped before he said anything
+                        reply = repeats.fallback(user_repeated, compare)
+                        emit(reply)
+                elif reply and not user_repeated:
+                    # a new message: one last short try, just an answer to it (a small brain that keeps making the
+                    # same pitch — "Yoru? Cool, let's get into it…" — rarely repeats itself in one sentence)
+                    if on_reset:
+                        on_reset()
+                    short_try, _, last = attempt(history + [{"role": "assistant", "content": tried},
+                                                            {"role": "user", "content": repeats.SHORT_NOTE}],
+                                                 [], redo=True, cap=60)
+                    short_reply = last.text()
+                    if short_reply and (not repeats.too_similar(short_reply, compare + [reply])
+                                        or len(repeats.words(short_reply)) <= 25):
+                        reply = short_reply  # (a short line that's close beats a long rehash)
+                    else:
+                        # its answer ("you main Jett") beats a canned line, minus lines he already said
+                        kept = repeats.strip(reply, compare[:-1])
+                        reply = kept if kept != reply and len(repeats.words(kept)) >= 8 else reply
+                        if on_reset:
+                            on_reset()
+                        emit(reply)
+                else:
+                    kept = repeats.strip(reply, compare)
+                    reply = kept if len(repeats.words(kept)) >= 4 else repeats.fallback(user_repeated, compare)
+                    if on_reset:
+                        on_reset()
+                    emit(reply)
+        if not voice and reply:
+            reply = repeats.drop_meta(reply)  # the window shows the final reply, so it can still go here
+            reply = repeats.fresh_opener(reply, earlier)
+            # the app makes pictures and videos, never the reply: no "just made it — the video's in your chat"
+            if router.MEDIA_NOTE in way.note and router.MEDIA_CLAIM.search(reply):
+                reply = "I didn't make that yet 😅 say \"make a video of …\" or \"make a picture of …\" and I'll make it for real 🎬"
+            if way.kind in ("valorant", "review"):
+                reply = repeats.drop_preamble(reply)  # the answer first, not "you're on the right track…"
+            if way.kind == "live":
+                reply = repeats.brief(reply)
+            elif way.casual:  # small talk in a game chat: a small brain still slips strats in
+                kept = repeats._keep(reply, lambda s: not router.GAME_TALK.search(s))
+                reply = kept if len(repeats.words(kept)) >= 3 else repeats.fallback(False, earlier, casual=True)
+            elif way.kind not in ("code", "roblox") and estimate_tokens(reply) >= limit * 0.8:
+                reply = repeats.whole_sentences(reply)  # it ran into its limit: no half sentence at the end
         done = time.time()
         self.last_times.update(first_token=first[0] or done, done=done)
         self.last_stats = {"secs": round(done - started, 1),

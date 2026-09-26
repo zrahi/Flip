@@ -1,0 +1,446 @@
+import repeats
+import router
+
+# Real replies from a chat where he kept saying the same thing (screenshots from the user).
+S1a = ("WSP? Let's go live.\n\nWhat map are we on?\nI'll tell you the exact spot, util timing + why — no fluff. "
+       "You got this.\n\n*(Just say the map or \"call me.\")*")
+S1b = ("WSP? Let's get real — you're in the right headspace.\n\nWhat map are we on?\nI'll give you *exactly* where "
+       "to stand, when to swing and why. No fluff.\n\n*(Just say the map or \"call me\".)*")
+S2a = ("You're on point — Yoru's all about flash + smokes. Set up early, trade in angles, stay high, peek wide.\n\n"
+       "Let me know the map and I'll call you live. 🎯")
+S2b = ("You're in the right headspace — Yoru's about flash + smoke. Set up smokes early, trade where you're in angle, "
+       "stay high, peek wide.\n\nLet me know the map — I'll call you live when you're ready. 🎯")
+
+
+def feed(watch, pieces):
+    for p in pieces:
+        watch.feed(p)
+    watch.finish()
+    return watch
+
+
+def test_catches_the_reworded_repeats_from_the_screenshots():
+    assert repeats.verdict(S1b, [S1a])
+    assert repeats.verdict(S2b, [S2a])
+    assert repeats.verdict(S2b, [S1a, S1b, S2a])
+    assert repeats.verdict("What map are we on? Tell me and we cook.", [S1a])  # the same question again
+    assert repeats.verdict("gg", ["gg"])
+
+
+def test_different_replies_are_fine():
+    pairs = [
+        ("Smoke Heaven and Tree, flash A main, entry behind the flash and plant default.",
+         "Smoke Market and Stairs, flash B main, clear Boathouse and Lane, then plant safe."),
+        ("Jett's dash is Tailwind: press it, then dash within the window.",
+         "Save this round. Buy Sheriffs next round only if the team forces with you."),
+        ("haha fair, what are you playing tonight?", "gg! that clutch was crazy, how many rounds did you win?"),
+        ("x = 4, because 2x = 8.", "x = 3 or x = 2, it factors as (x-2)(x-3)."),
+        (S1a, "Yoru on Ascent? Fakeout into A main, then Gatecrash behind them while they turn."),
+        (S2a, "Nah you're good, one bad round doesn't mean anything. Reset and play your first contact slower."),
+    ]
+    for old, new in pairs:
+        assert not repeats.verdict(new, [old]), (new, old)
+
+
+def test_code_is_not_compared():
+    old = "Here's the fixed door script:\n```lua Door.lua\nlocal door = script.Parent\nprint(1)\n```"
+    new = "Here's the door script with a slower tween:\n```lua Door.lua\nlocal door = script.Parent\nprint(2)\n```"
+    assert not repeats.verdict(new, [old])
+
+
+def test_watch_stops_a_repeat_before_any_of_it_shows():
+    shown = []
+    w = feed(repeats.Watch([S1a], shown.append), ["WSP", "? ", "Let's ", "get ", "real ", "— you're"])
+    assert w.stopped and shown == [] and "opens like before" in w.why
+    shown = []
+    w = feed(repeats.Watch([S2a], shown.append), ["You're ", "in the right headspace ", "— Yoru's ",
+                                                  "about flash + smoke. ", "Set up"])
+    assert w.stopped and shown == []
+
+
+def test_watch_lets_new_replies_through_word_by_word():
+    shown = []
+    w = feed(repeats.Watch([S1a], shown.append), ["Bet", ", Jett ", "on Ascent. ", "Dash ", "in ", "after ", "the flash."])
+    assert not w.stopped and "".join(shown) == "Bet, Jett on Ascent. Dash in after the flash." == w.text()
+    assert shown[-1] == "the flash."  # after the first sentence, words go out as they come
+    shown = []
+    w = feed(repeats.Watch([], shown.append), ["no ", "earlier ", "replies"])
+    assert shown == ["no ", "earlier ", "replies"]  # nothing to compare with: nothing held back
+
+
+def test_voice_skips_what_he_already_said():
+    shown = []
+    w = feed(repeats.Watch([S2a], shown.append, every=True),
+             ["Nice, Viper on Lotus. ", "Stay high, peek wide. ", "Wall off A main before the hit."])
+    assert "".join(shown) == "Nice, Viper on Lotus. Wall off A main before the hit."
+    shown = []
+    w = feed(repeats.Watch([S2a], shown.append, every=True),
+             ["Okay new idea. ", "Set up early, trade in angles. ", "Let me know the map and I'll call you live. ", "Bye."])
+    assert w.stopped and "".join(shown) == "Okay new idea. "  # kept going: cut off
+
+
+def test_redo_skips_owning_up_to_the_note():
+    shown = []
+    feed(repeats.Watch([S1a], shown.append, redo=True), ["My bad! ", "Jett ", "wants ", "the dash ready."])
+    assert "".join(shown) == "Jett wants the dash ready."
+
+
+def test_stop_button_shows_what_was_held():
+    shown = []
+    w = repeats.Watch([S1a], shown.append)
+    w.feed("one two ")
+    w.flush()
+    assert "".join(shown) == "one two "
+
+
+def test_brain_never_sees_its_old_repeats():
+    h = [{"role": "user", "content": "wsp coach"}, {"role": "assistant", "content": S1a},
+         {"role": "user", "content": "wsp coach"}, {"role": "assistant", "content": S1b},
+         {"role": "user", "content": "yoru"}, {"role": "assistant", "content": S2a},
+         {"role": "user", "content": "I do hear a coach."}, {"role": "assistant", "content": S2b}]
+    kept = repeats.dedupe(h)
+    assert [m["content"] for m in kept if m["role"] == "assistant"] == [S1a, S2a]
+    assert [m["content"] for m in kept if m["role"] == "user"] == ["wsp coach", "wsp coach", "yoru", "I do hear a coach."]
+    assert repeats.dedupe(kept) == kept  # stable: the same chat always reads the same (the brain's cache stays good)
+
+
+def test_user_repeating_and_asking_again():
+    assert repeats.same_message("wsp coach", "Wsp coach!")
+    assert not repeats.same_message("wsp coach", "coach me on jett")
+    assert repeats.asks_again("say that again?") and repeats.asks_again("explain it simpler")
+    assert not repeats.asks_again("how do I hold B on Bind")
+
+
+def test_strip_and_fallback():
+    assert repeats.strip("Fresh idea: play Viper. Stay high, peek wide.", [S2a]) == "Fresh idea: play Viper."
+    used = "you said that already 😭 what's up for real?"
+    for _ in range(20):
+        assert repeats.fallback(True, [used]) != used
+    assert repeats.fallback(False, []) in repeats.FALLBACK["other"]
+
+
+def test_small_talk_gets_no_coaching_pitch():
+    for msg in ("wsp coach", "yo bro", "lol ok", "hey flip!", "thanks man", "WSP"):
+        r = router.route(msg, "valorant")
+        assert r.kind == "chat" and "small talk" in r.note, msg
+    assert router.route("yo what's the best agent for ascent?", "auto").kind == "valorant"
+    assert router.route("coach me on jett", "auto").kind == "valorant"
+
+
+def test_the_builds_stricter_check():
+    assert repeats.too_similar(S1b, [S1a]) and repeats.too_similar(S2b, [S2a])
+    assert repeats.too_similar("WSP? Totally different stuff about Viper walls today.", [S1a])  # same opener
+    assert repeats.too_similar("Honestly though, set up early, trade in angles and swing.", [S2a])  # reused line
+    assert not repeats.too_similar("Nah you're good, reset and play your first contact slower.", [S2a])
+    assert not repeats.too_similar("Viper on Lotus? Wall off A main, orb Tree.", [S1a, S2a])
+
+
+def test_redo_drops_talk_about_not_repeating():
+    shown = []
+    feed(repeats.Watch([S1a], shown.append, redo=True),
+         ["Ayy, I'm not going to repeat myself — but let's pivot. ", "Rankedmeta has ", "Clove on top right now."])
+    assert "".join(shown) == "Rankedmeta has Clove on top right now."
+
+
+def test_a_real_answer_beats_a_canned_line(monkeypatch):
+    import store
+    from brain import Brain
+
+    first = "Jett's kit: Cloudburst smokes, Updraft goes up, Tailwind dashes. Jett is all about entry and dash timing."
+    close = "You main Jett, so Cloudburst, Updraft and Tailwind are your kit. Entry with the dash."
+
+    class Backend:
+        calls = 0
+
+        def answer(self, system, history, tools, run_tool, on_text=None, stop=None, **kw):
+            Backend.calls += 1
+            text = first if Backend.calls == 1 else close
+            on_text(text)
+            return text, False
+
+    if store.account is None:
+        store.use_account(store.create_account("canned", "password1"))
+    store.use_profile(store.profiles()[0] if store.profiles() else store.create_profile("Sam"))
+    b = Brain({"name": "Flip", "roblox_studio": False}, "You are {name}.", "http://127.0.0.1:9/v1")
+    b.backend = Backend()
+    b.chat("mainchat", "i main jett, what's her kit?")
+    reply, _, _ = b.chat("mainchat", "what agent do I main? one short sentence")
+    assert reply == close  # overlaps his last reply, but it answers: no "say that another way?"
+
+
+def test_redo_with_nothing_to_compare_still_drops_the_acknowledgement():
+    shown = []
+    feed(repeats.Watch([], shown.append, redo=True), ["My bad, ", "not gonna repeat that. ", "You main Jett."])
+    assert "".join(shown) == "You main Jett."
+
+
+def test_no_talk_about_notes_or_not_repeating():
+    r = ("Ayy, those notes were solid. Yoru's Fakeout sells a flank. I'm not gonna say that again, "
+         "so try Gatecrash behind them. Check the patch notes too.")
+    assert repeats.drop_meta(r) == ("Yoru's Fakeout sells a flank. Check the patch notes too.")
+    assert repeats.drop_meta("the notes") == "the notes"  # never empties a reply
+    shown = []
+    feed(repeats.Watch([S1a], shown.append, every=True), ["Nice. ", "Your notes say Jett. ", "Dash in late."])
+    assert "".join(shown) == "Nice. Dash in late."
+
+
+def test_tool_loops_end_with_an_answer():
+    import types
+
+    from brain import MAX_TOOL_STEPS, LocalBackend
+
+    b = LocalBackend.__new__(LocalBackend)
+    b.model, b.context = "x", 8192
+    asked = []
+
+    class Stream(list):
+        def close(self):
+            pass
+
+    def create(**kw):  # a brain that calls the calculator whenever it's allowed to
+        asked.append(bool(kw.get("tools")))
+        if kw.get("tools"):
+            call = types.SimpleNamespace(index=0, id="c", function=types.SimpleNamespace(name="math", arguments="{}"))
+            delta = types.SimpleNamespace(content=None, tool_calls=[call])
+        else:
+            delta = types.SimpleNamespace(content="it's 2", tool_calls=None)
+        return Stream([types.SimpleNamespace(choices=[types.SimpleNamespace(delta=delta)])])
+
+    b.client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
+    tool = {"name": "math", "description": "calc", "schema": {"type": "object", "properties": {}}}
+    reply, stopped = b.answer("sys", [{"role": "user", "content": "hi"}], [tool], lambda name, args: "x" * 3000)
+    assert reply == "it's 2" and not stopped
+    assert asked[-1] is False and len(asked) < MAX_TOOL_STEPS  # stopped offering tools before the chat overflowed
+
+
+def test_reworded_first_sentence_in_a_call_is_caught_before_it_is_said():
+    before = "I'm in coach mode now—ready to go into the game. Let's get that bot frag thing fixed up for you."
+    shown = []
+    w = feed(repeats.Watch([before], shown.append, every=True, strict=True),  # ("wsp coach" twice)
+             ["I'm in the right mode now—ready for that coach session. ", "Let's get started!"])
+    assert w.stopped and shown == []  # (from a real voice call in the Windows build)
+
+
+def test_live_callouts_stay_short():
+    r = ("Hold tree. Smoke hut. Flash off contact. Clear root. Drop. Play crossfire. Don't give 1v1.\n\n"
+         "Lotus, Phoenix — attack A. B is small site. Rotate doors loud. Watch")  # (from the Windows build)
+    assert repeats.brief(r) == "Hold tree. Smoke hut. Flash off contact. Clear root. Drop. Play crossfire. Don't give 1v1."
+    assert len(repeats.words(repeats.brief(r))) <= 22
+    assert repeats.brief("Hold tree.") == "Hold tree."
+    long = "Two on A, one heaven, so stack B with the whole team and hit fast before they rotate through mid and doors."
+    assert repeats.brief(long) == long  # one sentence always stays
+
+
+def test_a_reply_cut_by_its_limit_ends_on_a_whole_sentence():
+    assert repeats.whole_sentences("Nice. Stay high, peek wide. Then when they") == "Nice. Stay high, peek wide."
+    assert repeats.whole_sentences("All good 🔥") == "All good 🔥"
+    assert repeats.whole_sentences("no end at all") == "no end at all"
+
+
+def test_filler_words_dont_make_a_repeat():
+    said = ["Got your map? Just wait for that first move. What do you need right now? Let me know what's on your mind."]
+    assert not repeats.too_similar("Bet, which agent tonight? I'll call the first fight with you.", said)
+
+
+def test_just_chatting_in_a_valorant_chat_gets_no_strats():
+    r = router.route("beforre u get bored or before i get bored", "valorant")  # (from the user's screenshot)
+    assert r.kind == "chat" and router.COACH_NOTE_START not in r.note
+    r = router.route("man i'm so tired today", "auto", "I play Yoru")
+    assert r.kind == "chat" and "valorant" not in r.tags  # no notes full of setups to recite
+    assert router.route("ok what else?", "auto", "I play Yoru").kind == "valorant"  # a follow-up keeps coaching
+    r = router.route("I'm Omen on Bind attack, where do I smoke for a B split?", "auto")
+    assert r.kind == "valorant"  # planning, not a mid-round callout
+    r = router.route("how should we hit A on Ascent?", "valorant")
+    assert router.COACH_NOTE_START in r.note
+
+
+def test_parroting_the_instructions_is_caught():
+    system = "You are Flip. You're talking to Sam (that's the name on their profile). Keep replies short."
+    asked = "I keep dying first when I entry on Jett. What am I doing wrong?"
+    bad = ("You're talking to Sam (that's the name on their profile).\n\nI keep dying first when I entry on Jevt. "
+           "What am I doing wrong?\n\nYou're talking to Sam")  # (from the Windows build)
+    assert repeats.echoes(bad, [system, asked])
+    good = "You're dashing in before your team's util lands. Wait for the flash, then Tailwind in and let them trade."
+    assert not repeats.echoes(good, [system, asked])
+    assert not repeats.echoes("Vandal or Phantom? Vandal, the one-tap at any range is worth it.", ["Vandal or Phantom? pick one"])
+
+
+def test_no_ayy_every_time():
+    before = ["Ayy, Sova's ult is Hunter's Fury.", "Nice."]
+    assert repeats.fresh_opener("Ayy — let's break it down. Save this round.", before) == "Let's break it down. Save this round."
+    assert repeats.fresh_opener("Ayyy, Sam — take mid first.", before) == "Take mid first."
+    assert repeats.fresh_opener("Ayy, take mid first.", ["Save.", "Buy."]) == "Ayy, take mid first."  # not used lately
+    assert repeats.fresh_opener("Yoru's a lurker.", before) == "Yoru's a lurker."  # "Yoru" isn't "yo"
+
+
+def test_a_voice_redo_is_watched_too(monkeypatch):
+    import store
+    from brain import Brain
+
+    first = "I'm on the cooldown, man, just got a new bot frag in Valorant. How's your game?"
+    again = "I'm on the record, just got a bot frag while I was in Valorant. What's up with your game today?"
+
+    class Backend:
+        calls = 0
+
+        def answer(self, system, history, tools, run_tool, on_text=None, stop=None, **kw):
+            Backend.calls += 1
+            text = first if Backend.calls == 1 else again  # the redo says the same thing again
+            for piece in text.split(" "):
+                on_text(piece + " ")
+                if stop is not None and stop.is_set():
+                    return text, True
+            return text, False
+
+    if store.account is None:
+        store.use_account(store.create_account("voiceredo", "password1"))
+    store.use_profile(store.profiles()[0] if store.profiles() else store.create_profile("Sam"))
+    b = Brain({"name": "Flip", "roblox_studio": False}, "You are {name}.", "http://127.0.0.1:9/v1")
+    b.backend = Backend()
+    said = []
+    b.chat("voiceredo", "yo what's up", voice=True, on_text=said.append)
+    said.clear()
+    reply, _, _ = b.chat("voiceredo", "do you see my screen?", voice=True, on_text=said.append)
+    assert not repeats.too_similar(reply, [first]) and not repeats.too_similar("".join(said), [first])
+
+
+def test_a_new_question_can_share_words_with_the_last_answer():
+    before = "On Ascent, you should play a mid-control agent because it's the most effective in controlling the map."
+    shown = []
+    w = feed(repeats.Watch([before], shown.append, every=True),  # "explain everything about playing Sova"
+             ["On Ascent, Sova is a great choice for mid-control. ", "Recon Bolt mid first, then shock the corners."])
+    assert not w.stopped and shown  # (the build's call got cut off before he said anything)
+
+
+def test_a_call_skips_a_rehashed_line_but_still_answers():
+    before = ("On Ascent, you should play a mid control agent, like Sova or KAY/O, because they're great for controlling "
+              "mid with utility early.")  # (build 48: he said nothing at all after this)
+    shown = []
+    w = feed(repeats.Watch([before], shown.append, every=True),
+             ["Sova is a great agent for Ascent — especially when you're looking for control and utility in the early "
+              "rounds. ", "Recon Bolt off the mid box first, ", "then shock dart the corner at A main."])
+    assert not w.stopped and "Recon Bolt" in "".join(shown)
+
+
+def test_coaching_answers_start_with_the_answer():
+    assert repeats.drop_preamble("You're on the right track with that retake plan — focus on B link first, then flash in "
+                                 "together.") == "Focus on B link first, then flash in together."
+    assert repeats.drop_preamble("Ayy, Sam — you're asking about retaking B on Bind as 3? Let's break this down like a "
+                                 "pro. Group up at B link first, then flash in.") == "Group up at B link first, then flash in."
+    assert repeats.drop_preamble("Smoke B Garden early, then hit together.") == "Smoke B Garden early, then hit together."
+    assert repeats.drop_preamble("Got it.") == "Got it."  # never leaves nothing
+
+
+def test_callouts_arent_a_list_of_names():
+    r = "A Main, A Ramps, B Alley, B Back, B Link, B Tower, mid vent, mid mail. Fall back and retake B together."
+    assert repeats.brief(r) == "Fall back and retake B together."  # (build 49)
+    assert repeats.brief("Smoke heaven, flash site, then explode.") == "Smoke heaven, flash site, then explode."
+
+
+def test_a_last_short_try_when_the_same_pitch_comes_twice():
+    import store
+    from brain import Brain
+
+    pitch = ("Yoru? Cool. Let's get into it, what map are you playing on today? If you want to work on a drill, util "
+             "setup or decision, just say the thing.")
+    again = ("Yoru? Cool, let's get into it with the map we're using. Do you want util setups for Yoru, or a drill "
+             "like counter-strafing? Just say the thing.")  # (build 50)
+    replies = iter([pitch, again, again, "haha loud and clear, your coach is right here 😎"])
+
+    class Backend:
+        def answer(self, system, history, tools, run_tool, on_text=None, stop=None, **kw):
+            text = next(replies)
+            on_text(text)
+            return text, False
+
+    if store.account is None:
+        store.use_account(store.create_account("shorttry", "password1"))
+    store.use_profile(store.profiles()[0] if store.profiles() else store.create_profile("Sam"))
+    b = Brain({"name": "Flip", "roblox_studio": False}, "You are {name}.", "http://127.0.0.1:9/v1")
+    b.backend = Backend()
+    b.chat("shorttrychat", "I play Yoru")
+    reply, _, _ = b.chat("shorttrychat", "I do hear a coach.")
+    assert reply == "haha loud and clear, your coach is right here 😎"
+
+
+def test_small_talk_filler_isnt_a_repeat():
+    said = ["I'm on Valorant right now, just chilling in the lobby. You're doing good today—how's it going?"]
+    assert not repeats.too_similar("I'm in coach mode, you know? Check out what's going on in Valorant. You got a good "
+                                   "one today—how's that going?", said)  # (build 51: only "valorant, good, today")
+
+
+def test_a_tool_call_written_as_text_is_run_not_shown():
+    import types
+
+    from brain import LocalBackend, clean_reply, visible
+
+    leaked = '<tool_call>\n{"name": "web_search", "arguments": {"query": "roblox villain"}}\n</tool_call>'  # (build 52)
+    assert visible("Here you go " + leaked) == "Here you go " and clean_reply(leaked) == ""
+    b = LocalBackend.__new__(LocalBackend)
+    b.model, b.context = "x", 8192
+    ran = []
+
+    class Stream(list):
+        def close(self):
+            pass
+
+    def create(**kw):
+        text = leaked if not ran else "Ahh, you thought you could stop me?"
+        delta = types.SimpleNamespace(content=text, tool_calls=None)
+        return Stream([types.SimpleNamespace(choices=[types.SimpleNamespace(delta=delta)])])
+
+    b.client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
+    tool = {"name": "web_search", "description": "search", "schema": {"type": "object", "properties": {}}}
+    shown = []
+    reply, _ = b.answer("sys", [{"role": "user", "content": "villain monologue"}], [tool],
+                        lambda name, args: ran.append((name, args)) or "results", shown.append)
+    assert ran == [("web_search", {"query": "roblox villain"})] and reply == "Ahh, you thought you could stop me?"
+    assert "<tool_call>" not in "".join(shown)
+
+
+def test_the_same_message_twice_in_a_call_checks_two_sentences_together():
+    before = "I'm on the go in Valorant right now, you know? Just got a little patch update. You want to see how I handle the new meta today?"
+    shown = []
+    w = feed(repeats.Watch([before], shown.append, every=True, strict=True),  # (build 53: "wsp coach" twice)
+             ["You're on the grind too—just got the patch update in. ", "Want to talk about what's new in the meta?"])
+    assert w.stopped and shown == []
+    shown = []
+    w = feed(repeats.Watch([before], shown.append, every=True, strict=True), ["haha you again? what's good"])
+    assert not w.stopped and shown  # one short sentence still gets judged at the end
+
+
+def test_hearing_about_a_coach_isnt_asking_for_coaching():
+    assert router.route("I do hear a coach.", "auto", "I play Yoru").kind == "chat"  # (build 56: another Yoru rehash)
+    assert router.route("I do need a coach", "auto", "wsp coach").kind == "valorant"
+    assert router.route("coach me on jett", "auto").kind == "valorant"
+
+
+def test_one_borrowed_phrase_isnt_parroting():
+    system = "You are Flip. (Math: use the math tool for any calculation, then check the result makes sense.)"
+    r = "54156384. Let me use the math tool to check the result makes sense: 59382 times 912 is 54156384."
+    assert not repeats.echoes(r, [system, "what's 59382 × 912?"])  # (build 57: a 4-minute redo for this)
+
+
+def test_a_tool_call_on_the_last_step_still_ends_in_an_answer():
+    import types
+
+    from brain import LocalBackend
+
+    b = LocalBackend.__new__(LocalBackend)
+    b.model, b.context = "x", 8192
+    asked = []
+
+    class Stream(list):
+        def close(self):
+            pass
+
+    def create(**kw):  # (build 58: a match review searched three times, then ended empty)
+        asked.append(kw.get("tools"))
+        nudged = any("No more tools" in str(m.get("content")) for m in kw["messages"])
+        text = "Verdict: you died first too often." if nudged else '<tool_call>{"name": "web_search", "arguments": {}}</tool_call>'
+        delta = types.SimpleNamespace(content=text, tool_calls=None)
+        return Stream([types.SimpleNamespace(choices=[types.SimpleNamespace(delta=delta)])])
+
+    b.client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
+    reply, _ = b.answer("sys", [{"role": "user", "content": "review"}], [], lambda n, a: "x")  # no tools at all
+    assert reply == "Verdict: you died first too often." and len(asked) == 2
