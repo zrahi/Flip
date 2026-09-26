@@ -219,3 +219,16 @@ def test_every_reply_has_an_end():
     for msg, mode in [("hi", "auto"), ("what's 59382 × 912?", "auto"), ("write a luau door script", "auto"),
                       ("how do I play jett?", "auto"), ("why did we lose? 6-13", "valorant"), ("hard problem", "think")]:
         assert router.route(msg, mode).max_tokens, msg  # a looping small brain can't write forever
+
+
+def test_coaching_knows_the_situation():
+    import router
+
+    r = router.route("What does the agent Zephyrus's ultimate do?", "auto")
+    assert "no Valorant agent called Zephyrus" in r.note  # doesn't make up a kit
+    assert router.unknown_agent("what does waylay's ultimate do") is None
+    assert router.unknown_agent("what's my team's util like") is None
+    r = router.route("my team keeps flaming me and I'm tilted", "auto")
+    assert "valorant" in r.tags and "real friend first" in r.note  # his tilt notes, not strats
+    r = router.route("the enemy jett is so toxic lol, how do i beat her", "auto")
+    assert "Valorant: help with exactly this" in r.note  # a real question still gets coached

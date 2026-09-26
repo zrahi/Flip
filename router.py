@@ -255,6 +255,36 @@ class Route:
         return f"Route({self.kind}, tags={sorted(self.tags)}, math={self.math_tool}, max={self.max_tokens}, think={self.think})"
 
 
+ASKED_AGENT = re.compile(r"\bagent (?:called |named )?([A-Za-z][\w/]{2,})|\b([A-Za-z][\w/]{2,})['’]s (?:ult|ultimate|ulti|"
+                         r"abilities|ability|kit|util|utility|q|e|c|x|signature|passive)\b", re.I)
+NOT_NAMES = {"my", "your", "his", "her", "their", "our", "the", "this", "that", "whose", "which", "what", "who", "its",
+             "team", "enemy", "enemies", "duelist", "controller", "initiator", "sentinel", "valorant", "riot", "an",
+             "every", "each", "one", "someone", "somebody", "anyone", "agent", "agents", "new", "best"}
+
+
+TILT = re.compile(r"\b(tilt\w*|flam(e|es|ed|ing)|toxic|rag(e|ing)|so (mad|angry|annoyed|frustrated)|losing streak|"
+                  r"lose streak|wanna (quit|uninstall)|want to (quit|uninstall)|bad day|i'?m done with (this|valorant))\b",
+                  re.I)
+
+
+GAME_ASK = re.compile(r"\b(beat|counter|deal with|play (vs|against)|how (do|should|can) (i|we) (play|hold|win|hit|stop|"
+                      r"beat|counter|take|retake))\b", re.I)
+
+
+def unknown_agent(text):
+    """"What does the agent Zephyrus's ultimate do?": a name that isn't a Valorant agent (or None)."""
+    try:
+        import livedata
+        live = {k for k, a in livedata.art().items() if a["kind"] == "agent"}
+    except Exception:
+        live = set()
+    for m in ASKED_AGENT.finditer(text):
+        name = (m.group(1) or m.group(2)).lower().replace("’", "'").removesuffix("'s")
+        if name not in NOT_NAMES and name not in AGENTS and name not in live and name.replace("/", "") not in AGENTS:
+            return name
+    return None
+
+
 def route(text, mode="auto", recent="", voice=False, pictures=0):
     """recent: the last few messages of the chat (for follow-ups like "and B?"). pictures: how many came with it."""
     mode = mode if mode in MODES else "auto"
@@ -313,11 +343,21 @@ def route(text, mode="auto", recent="", voice=False, pictures=0):
                          "follows on from what we were just discussing, keep helping with that. If it's just chat, "
                          "reply to what I actually said, like a friend. If you can't tell what I mean, ask me in one "
                          "short line. Never answer with game advice I didn't ask for.)")
+        elif unknown_agent(text):
+            name = unknown_agent(text).title()
+            notes.append(f"(There is no Valorant agent called {name}. Say that plainly in one short line and don't "
+                         f"make up abilities. If I probably meant a real agent with a similar name, ask if I meant that "
+                         f"one.)")
         else:
             notes.append("(Valorant: help with exactly this, straight away and confidently, like a coach who's also "
                          "my duo: concrete spots, util and timing for my situation, and why. Don't talk about how "
                          "you coach, just do it. Short unless I ask for detail. Use your notes; don't make up "
                          "abilities or patch numbers.)")
+    if TILT.search(t) and r.kind in ("chat", "valorant") and not r.search and not GAME_ASK.search(t):
+        r.tags.add("valorant")  # his notes on tilt and flame
+        notes = [n for n in notes if not n.startswith("(Valorant: help with exactly this")]
+        notes.append("(They're tilted or getting flamed: be a real friend first, in 1-3 short lines. Take their side a "
+                     "bit, then one thing that helps them reset. No strats unless they ask.)")
     if math_q:
         r.math_tool = True
         if word_problem(text) and not voice and mode != "fast":
