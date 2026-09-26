@@ -34,6 +34,9 @@ MODELS = [
 ]
 # "light" brain size: about half the space, a bit less smart.
 LIGHT = "Qwen/Qwen3-VL-4B-Instruct-GGUF"
+# "tiny" brain size: ~1.5 GB, the fastest on a processor, noticeably less smart.
+TINY = "Qwen/Qwen3-VL-2B-Instruct-GGUF"
+SIZES = {"light": LIGHT, "tiny": TINY}
 QUANTS = ("Q4_K_M", "Q4_K_S", "Q4_0", "Q8_0")  # first one a repo has wins
 EYES_QUANTS = ("Q8_0", "F16", "BF16")
 
@@ -83,6 +86,15 @@ def gpu_info():
 
 def gpu_memory_gb():
     return gpu_info()[0]
+
+
+def cpu_threads():
+    """llama.cpp threads on a processor-only PC. Writing a reply is limited by memory speed, and
+    hyperthreads fighting over the same cores make it slower, so that uses the real cores minus one (his
+    ears need it). Reading the chat is pure number crunching, so that part gets every thread."""
+    n = os.cpu_count() or 2
+    cores = n // 2 if n >= 8 else n
+    return ["-t", str(max(1, cores - 1)), "-tb", str(max(1, n - 1))]
 
 
 def pick_model(vram_gb):
@@ -261,8 +273,7 @@ class Engine:
                 main = pick_model(vram)
                 log.info("GPU memory %.1f GB, picked %s", vram, main)
                 self._s["auto_model"] = main
-            if self._s.get("brain_size") == "light":
-                main = LIGHT
+            main = SIZES.get(self._s.get("brain_size"), main)
         return main
 
     def _ensure_llama(self, kind):
@@ -374,8 +385,7 @@ class Engine:
                     # reuses what it already read instead of starting over
                     "-np", "1"]
             if not gpu:
-                # on the processor only: leave a core free, or his ears (and talking over him) lag behind
-                args += ["-ngl", "0", "-t", str(max(1, (os.cpu_count() or 2) - 1))]
+                args += ["-ngl", "0", *cpu_threads()]
             self._proc = subprocess.Popen(
                 args, cwd=str(server.parent), stdout=log_file, stderr=subprocess.STDOUT,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),

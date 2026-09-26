@@ -98,10 +98,25 @@ def test_storage_cleanup_keeps_what_is_in_use():
     (DATA / "llama-cuda-0.zip").write_bytes(b"x" * 200)  # unfinished download
     (DATA / "running.json").write_text(json.dumps({"kind": "cuda", "model": "small.gguf"}))
 
+    import tempfile
+    temp = Path(tempfile.gettempdir())
+    (temp / "tmpflipleft" / "EBWebView").mkdir(parents=True, exist_ok=True)  # an old run's browser folder
+    ((temp / "tmpflipleft" / "EBWebView") / "cache").write_bytes(b"x" * 700)
+    (temp / "tmpnotbrowser").mkdir(exist_ok=True)                            # someone else's temp folder
+    for name in ("distil-small.en", "small.en"):                              # an old and the current speech model
+        (DATA / "speech" / name).mkdir(parents=True, exist_ok=True)
+        (DATA / "speech" / name / "model.bin").write_bytes(b"x" * 300)
+
     r = storage.report()
     assert any(i["what"] == "brain: Big" and not i["in_use"] for i in r["items"])
     assert any(i["what"] == "brain: Small" and i["in_use"] for i in r["items"])
+    assert any(i["what"].startswith("caches") and not i["in_use"] for i in r["items"])
     storage.clean_up()
+    assert not list(temp.glob("tmpflipleft*")) and (temp / "tmpnotbrowser").is_dir()
+    assert not (DATA / "speech" / "distil-small.en").exists() and (DATA / "speech" / "small.en").exists()
+    (temp / "tmpnotbrowser").rmdir()
+    import shutil
+    shutil.rmtree(DATA / "speech")  # (a fake model left here would be loaded by the Windows ears tests)
     assert not (MODEL_DIR / "big.gguf").exists() and (MODEL_DIR / "small.gguf").exists()
     assert json.loads((MODEL_DIR / "models.json").read_text()) == {"org/Small-GGUF": "small.gguf"}
     assert not LLAMA_DIRS["vulkan"].exists() and LLAMA_DIRS["cuda"].exists()
@@ -179,7 +194,7 @@ def test_everything_fits_in_the_brain():
     history = [{"role": "user" if i % 2 == 0 else "assistant", "content": "blah " * 400} for i in range(30)]
     history.append({"role": "user", "content": "a"})
     kept, tools = b._fit("system text", history, huge_tools)
-    assert [t["name"] for t in tools] == ["remember", "forget", "math"]  # the giant tool list got dropped
+    assert [t["name"] for t in tools] == ["remember", "forget", "math", "web_search"]  # the giant tool list got dropped
     assert kept[-1]["content"] == "a" and kept[0]["role"] == "user"
     total = estimate_tokens("system text") + estimate_tokens(json.dumps(tools)) + sum(estimate_tokens(m["content"]) for m in kept)
     assert total <= 8192 - REPLY_ROOM
@@ -277,10 +292,17 @@ def test_voice_call_understands_while_you_talk():
     assert runs[-1] < voice.RATE * 3.4
 
 
+WORDS = ("alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec "
+         "romeo sierra tango uniform victor whiskey xray yankee zulu").split()
+FRESH = ["okay switching it up, what's your main?", "new plan: play off your util first", "try something different tonight"]
+
+
 class FakeModel(BaseHTTPRequestHandler):
     """Acts like the AI server: first asks to use tools, then streams an answer word by word."""
 
     slow = False
+    replies = 0  # every normal reply gets its own words, so none of them is a repeat
+    fresh = 0
 
     def log_message(self, *a):
         pass
@@ -319,18 +341,22 @@ class FakeModel(BaseHTTPRequestHandler):
         elif last["role"] == "user" and isinstance(last["content"], str) and "calc please" in last["content"]:
             self._chunk({"role": "assistant", "tool_calls": [{"index": 0, "id": "m1", "type": "function", "function": {
                 "name": "math", "arguments": json.dumps({"expression": "59382*912"})}}]})
-        elif isinstance(last["content"], str) and "repeat test" in last["content"]:
-            # a lazy brain: pastes its previous reply, unless told off
-            if "first try repeated" in last["content"] or "Don't repeat your earlier answer" in last["content"]:
-                words = ["alright ", "fresh ", "answer ", "this ", "time"]
+        elif isinstance(last["content"], str) and ("lazy test" in last["content"] or "already told me" in last["content"]):
+            # a lazy brain: pastes its previous reply (reworded a bit), unless told off
+            if "already told me" in last["content"]:
+                words = [FRESH[FakeModel.fresh % len(FRESH)]]
+                FakeModel.fresh += 1
             else:
                 prev = [m["content"] for m in body["messages"] if m["role"] == "assistant"][-1]
-                words = [prev]
+                words = [w + " " for w in ("So, " + prev).split()]
             for w in words:
                 self._chunk({"content": w})
         else:
             results = [m["content"] for m in body["messages"] if m["role"] == "tool"]
-            words = ["<think>", "hmm", "</think>", "bet ", " | ".join(results)] if results else ["yo ", "what's ", "good"]
+            n = FakeModel.replies
+            FakeModel.replies += 1
+            mine = [WORDS[(3 * n + i) % len(WORDS)] for i in range(3)]
+            words = ["<think>", "hmm", "</think>", "bet ", " | ".join(results)] if results else [f"{w} " for w in mine]
             if FakeModel.slow:
                 words = ["one ", "two ", "three ", "four ", "five "]
             for w in words:
@@ -406,13 +432,16 @@ def test_brain_memory_tools_and_streaming():
     assert store.load_chat("c0ffee")["messages"][-2]["content"] == "what's on my screen?"  # the picture isn't saved
 
     resets, shown = [], []
-    reply, _, _ = b.chat("c0ffee", "repeat test", on_text=shown.append, on_reset=lambda: resets.append(1))
-    assert reply == "alright fresh answer this time"  # the copy got caught early and redone…
+    reply, _, _ = b.chat("c0ffee", "lazy test", on_text=shown.append, on_reset=lambda: resets.append(1))
+    assert reply == FRESH[0]                             # the reworded copy got caught early and redone…
     assert resets == [] and "".join(shown) == reply     # …before any of it was shown or spoken
-    assert FakeModel.last["temperature"] == 1.0
+    assert FakeModel.last["temperature"] == 1.0 and FakeModel.last["presence_penalty"] > 1.5
+    redo = FakeModel.last["messages"]
+    assert redo[-2]["role"] == "assistant" and "already told me" in redo[-1]["content"]  # only added to the end
     shown.clear()
-    reply, _, _ = b.chat("c0ffee", "repeat test", voice=True, on_text=shown.append)  # in voice calls too
-    assert reply == "alright fresh answer this time" and "".join(shown) == reply
+    reply2, _, _ = b.chat("c0ffee", "lazy test", voice=True, on_text=shown.append)  # in voice calls too
+    assert reply2 == FRESH[1] and "".join(shown) == reply2
+    assert "same message as last time" in FakeModel.last["messages"][-3]["content"]  # he's told they repeated
     assert FakeModel.last["dry_multiplier"] > 0
 
     FakeModel.slow = True  # the stop button
@@ -438,7 +467,7 @@ def test_downloads_exist():
         found = engine.llama_download(kind)
         assert len(found) == parts, (kind, found)
         assert all(url.endswith(".zip") and size > 1e6 for url, size in found)
-    for repo in {r for _, r in engine.MODELS} | {engine.LIGHT}:
+    for repo in {r for _, r in engine.MODELS} | set(engine.SIZES.values()):
         url, name, size = engine.model_download(repo)
         assert name.endswith(".gguf") and size > 5e8, (repo, name, size)
         eyes = engine.eyes_download(repo)

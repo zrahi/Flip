@@ -53,10 +53,12 @@ def pick(sections, text, tags=(), budget=5000):
     text = text.lower()
     scored = []
     for i, s in enumerate(sections):
-        tagged = any(k[1:] in tags for k in s["keys"] if k.startswith("*"))
+        tagged = [k[1:] for k in s["keys"] if k.startswith("*") and k[1:] in tags]
         hits = sum(_hits(k, text) for k in s["keys"])
         if tagged or hits:
-            scored.append((0 if tagged else 1, -hits, i, s))
+            # a mode's own notes (live callouts, reviews) first, then what the message is about, then the basics
+            rank = 0 if any(t != "valorant" for t in tagged) else 1 if hits else 2
+            scored.append((rank, -hits, i, s))
     chosen, used = [], 0
     for *_, s in sorted(scored):
         size = len(s["text"]) + len(s["title"]) + 8

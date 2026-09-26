@@ -39,6 +39,9 @@ Name: "{userprograms}\Flip"; Filename: "{app}\Flip.exe"
 Name: "{userdesktop}\Flip"; Filename: "{app}\Flip.exe"; Tasks: desktopicon
 
 [Run]
+; Old single-file Flips update by putting this installer in place of their Flip.exe: once the new Flip is
+; installed, that copy goes, so nothing old is left that opens the installer again.
+Filename: "{cmd}"; Parameters: "/c ping 127.0.0.1 -n 11 > nul & del /f /q ""{srcexe}"""; Flags: runhidden nowait; Check: IsOldFlipCopy
 Filename: "{app}\Flip.exe"; Description: "Open Flip"; Flags: nowait postinstall; Check: ShouldLaunch
 
 [UninstallDelete]
@@ -53,6 +56,15 @@ begin
   for i := 1 to ParamCount do
     if CompareText(ParamStr(i), '/NOLAUNCH') = 0 then
       Result := False;
+end;
+
+function IsOldFlipCopy: Boolean;
+var
+  src: String;
+begin
+  src := ExpandConstant('{srcexe}');
+  Result := (CompareText(ExtractFileName(src), 'Flip.exe') = 0) and
+            (CompareText(ExtractFileDir(src), ExpandConstant('{app}')) <> 0);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

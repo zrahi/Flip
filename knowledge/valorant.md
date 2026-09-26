@@ -4,7 +4,7 @@
 KEYS: *valorant
 STATIC GAME KNOWLEDGE. Prices, damage and ability details get tuned in patches: if the user says something changed, trust them; if you're unsure of an exact current number, say so instead of guessing. If an agent, ability or map isn't in your notes, say you're not sure instead of making it up.
 - Rounds: 100 s. Spike blows 45 s after plant. Defuse 7 s; half (3.5 s) is saved if you let go. First to 13; at 12-12 overtime, win by 2.
-- The only agents: Jett, Reyna, Raze, Phoenix, Yoru, Neon, Iso, Waylay (duelists); Sova, Breach, Skye, KAY/O, Fade, Gekko, Tejo (initiators); Brimstone, Omen, Viper, Astra, Harbor, Clove (controllers); Sage, Cypher, Killjoy, Chamber, Deadlock, Vyse, Veto (sentinels). Any other name isn't a Valorant agent (Zenyatta, Mercy etc. are Overwatch).
+- Agents (if your notes have a LIVE agent list, it's newer and wins over this one): Jett, Reyna, Raze, Phoenix, Yoru, Neon, Iso, Waylay (duelists); Sova, Breach, Skye, KAY/O, Fade, Gekko, Tejo (initiators); Brimstone, Omen, Viper, Astra, Harbor, Clove (controllers); Sage, Cypher, Killjoy, Chamber, Deadlock, Vyse, Veto (sentinels). A name in neither list isn't a Valorant agent (Zenyatta, Mercy etc. are Overwatch).
 - The only guns: Classic, Shorty, Frenzy, Ghost, Sheriff, Stinger, Spectre, Bucky, Judge, Bulldog, Guardian, Phantom, Vandal, Marshal, Outlaw, Operator, Ares, Odin. No M4, AK, M416, P90, AWP (those are other games).
 - Roles: Duelist makes space and entries. Initiator gets info and flashes/stuns for the entry. Controller smokes sightlines (wins or loses executes). Sentinel holds a site or flank with traps/walls.
 - Pro habits: trade your teammate (stay close enough to kill his killer). Info before commitment. Don't re-peek the angle you just got a kill from. Use util before you swing, not after you die. Play for the round, not the kill.
@@ -118,14 +118,23 @@ STATIC:
 KEYS: *live
 When the user is mid-match giving quick info, answer like an in-game shotcaller:
 - 1 to 3 short imperative callouts, max ~20 words total. No greetings, no emojis, no explanations unless asked.
-- Use the map's real callouts and the match state (map, side, agent, money, spike, alive count, enemy positions).
-- Examples of the style: "Hold tree. Don't swing yet. Flash off contact." / "Save here. Rifles next round." / "Play crossfire with Jett. Don't give the 1v1." / "Smoke heaven, flash site, then explode."
+- Use the match state (map, side, agent, money, spike, alive count, enemy positions) and only callouts that exist on THIS map (from its callout list). Defending: hold, delay, fall back, retake. Attacking: take space, hit, plant, play post-plant.
+- Call what THIS situation needs: where they are, how many are alive, whether the spike is down. Never a stock line that ignores it.
 - Never pad with generic stuff like "stay calm", "focus", "communicate".
+
+## Tilt, flame and mental
+KEYS: tilt, tilted, tilting, flame, flaming, flamed, toxic, rage, raging, mad, angry, frustrated, annoyed, losing streak, lose streak, hardstuck, give up, quit, uninstall, bad day, throwing, thrower, blame, blaming, mental, calm down
+- Be a friend first: one or two real lines, no strat dump. Take their side a bit, then help them reset.
+- Mute the flamer from the scoreboard: it costs nothing and they play better right after.
+- Reset: breathe, drink water, only think about the next round. One round at a time, not the score.
+- Two losses in a row while tilted: take a 10-minute break or play unrated/deathmatch, then come back.
+- Don't argue in comms: one calm, useful call does more than defending yourself.
+- If it's them throwing, keep it honest but kind: say the one thing to fix, later, when they're calm.
 
 ## Training and practice
 KEYS: practice, train, training, drill, routine, improve, get better, aim, aimlab, range, deathmatch, dm, warm up, quiz, test me, scenario, review, vod, mistake, why did i lose, what went wrong, coach, coach me, coaching
 STATIC:
-- "Coach me": ask ONE quick question first (their agent, map, rank, or what they struggle with) unless you already know it, then give a short focused plan. If they're in a match right now, switch to short live callouts.
+- "Coach me": if you already know their agent, rank or what they struggle with (from memory or this chat), start helping with that right away. Otherwise ask about ONE thing you haven't asked yet in this chat. Never ask the same question twice: if they skipped it, give them something useful anyway (a quick tip for their agent, a drill, a question about their last game). If they're in a match right now, switch to short live callouts.
 - If they list agents ("Yoru, Viper"), that's probably their team comp or who they play: ask the map/side, or give each agent's job in one line.
 - Warm-up (15-20 min): 5 min range bots/strafe bots at head height, 1-2 deathmatches focusing on one thing (counter-strafe or crosshair placement), 1 swiftplay/TDM for movement.
 - Per-agent routine: learn 2-3 util setups per site for your map pool before learning 20.
@@ -133,6 +142,17 @@ STATIC:
 - Reviewing a round: find the one decision that lost it (dry peek, no trade, late rotate, wrong buy), say what to do instead, and why.
 - Quizzes: ask one question at a time (callout, eco decision, clutch scenario, positioning), wait for the answer, then grade it briefly and explain.
 - Keep plans short: a few bullet points, not essays.
+
+## Match review checklist
+KEYS: *review, review, scoreboard, stats, what went wrong, why did we lose, why did i lose, acs, adr, kast, k/d, kda, first blood, first death, econ
+How a coach reads a game (use what's visible; say what's missing):
+- Score and side: which half went wrong? Losing most attack rounds = executes/entries; most defense rounds = setups/rotations/retakes.
+- First deaths vs first bloods: dying first a lot (especially not as the duelist) is the #1 round-loser: dry peeks, no util, no trade partner. Fix: peek with util or a teammate, hold the angle instead of taking it.
+- K/D with low ACS/ADR: kills came late or in lost rounds (exit frags); high ADR low kills: damage without finishing (tagging, no re-peek plan, trade missing).
+- Role check: duelists should get first contact with a trade behind them; initiators get info/flash before the entry; controllers get smokes down on time (lower ADR is fine); sentinels hold flank and survive (low deaths, high KAST).
+- Econ: many losses after winning pistol = bad anti-eco (fighting close, giving guns); lost bonus rounds; forcing alone.
+- Plants/defuses and clutches: few plants on attack = hits too slow or no entry; lost post-plants = everyone sat on spike, no crossfire.
+- Always end with ONE focus for the next game (e.g. "don't take first contact without util") and one drill (e.g. 10 min Range strafe bots at head height, then 1 deathmatch only counter-strafing).
 
 ## Ascent
 KEYS: ascent
