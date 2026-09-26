@@ -18,6 +18,7 @@ def _fake_kit(folder):
     enc = ov.Model([op.add(hidden, op.unsqueeze(used, op.constant([2])))], [ids], "text_encoder")
     sample = op.parameter([1, 4, 64, 64], np.float32, name="sample")
     t = op.parameter([1], np.float32, name="timestep")
+    t.output(0).get_tensor().set_names({"731", "timestep", "timesteps", "730"})  # like the real one (build 63)
     hs = op.parameter([1, 77, 768], np.float32, name="encoder_hidden_states")
     w = op.parameter([1, 256], np.float32, name="timestep_cond")
     out = op.multiply(sample, op.constant(np.float32(0.1)))
@@ -26,7 +27,7 @@ def _fake_kit(folder):
     first3 = op.slice(lat, op.constant([0]), op.constant([3]), op.constant([1]), op.constant([1]))
     big = op.interpolate(first3, op.constant(np.array([512, 512], dtype=np.int64)), "nearest", "sizes",
                          axes=op.constant(np.array([2, 3], dtype=np.int64)))
-    vae = ov.Model([op.tanh(big)], [lat], "vae_decoder")
+    vae = ov.Model([op.tanh(op.multiply(big, op.constant(np.float32(0.001))))], [lat], "vae_decoder")  # smooth
     for name, model in (("text_encoder", enc), ("unet", unet), ("vae_decoder", vae)):
         ov.save_model(model, str(folder / f"{name}.xml"))
     vocab = {"<|startoftext|>": 0, "<|endoftext|>": 1, "a</w>": 2, "c": 3, "at</w>": 4, "cat</w>": 5}
@@ -51,3 +52,20 @@ def test_lcm_schedule_matches_the_reference(tmp_path):
     _fake_kit(tmp_path)
     ids = ClipTokenizer(tmp_path / "vocab.json", tmp_path / "merges.txt").encode("A  Cat", length=6)
     assert ids == [0, 2, 5, 1, 1, 1]  # start, "a", "cat" (merged from c + at), end, padding
+
+
+def test_every_unet_input_is_fed_even_with_several_names(tmp_path):
+    # build 62 drew static: the timestep input is called "731" as well as "timestep", only the first name was
+    # looked at, so the timestep was never given to the model
+    _fake_kit(tmp_path)
+    ports = draw._unet_ports(ov.Core().compile_model(str(tmp_path / "unet.xml"), "CPU"))
+    assert {k: "timestep" in p.get_names() for k, p in ports.items()} == {
+        "sample": False, "timestep": True, "encoder_hidden_states": False, "timestep_cond": False}
+    assert "sample" in ports["sample"].get_names() and "timestep_cond" in ports["timestep_cond"].get_names()
+
+
+def test_static_is_not_a_picture():
+    rng = np.random.default_rng(0)
+    assert draw.roughness(rng.integers(0, 256, (512, 512, 3), dtype=np.uint8)) > draw.NOISE
+    smooth = np.tile(np.linspace(0, 255, 512, dtype=np.uint8)[None, :, None], (512, 1, 3))
+    assert draw.roughness(smooth) < draw.NOISE

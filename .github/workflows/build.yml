@@ -24,12 +24,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller pyinstaller-hooks-contrib pytest pytest-github-actions-annotate-failures
 
-      - name: Temporary drawing probe
-        shell: pwsh
-        run: |
-          python probe_draw.py "$env:RUNNER_TEMP\probe" "$env:RUNNER_TEMP\kit"
-          throw "probe only"
-
       - name: Tests
         env:
           GITHUB_TOKEN: ${{ github.token }}

@@ -20,7 +20,7 @@ HOME = DATA / "tmp" / "drawer"
 STEPS = 4
 GUIDANCE = 8.0
 SIZE = 512
-NOISE = 40  # roughness above this is static, not a picture (a real one is well under 20)
+NOISE = 8  # roughness above this is static, not a picture (build 63: static 15-17, a real picture 2.7)
 # Always part of the picture's description: modest, and no watermark-like text.
 STYLE = "high quality, detailed, clean digital illustration"
 
@@ -96,8 +96,23 @@ def roughness(pixels):
     return float(np.abs(np.diff(pixels.astype(np.float32), axis=1)).mean())
 
 
-def _inputs(compiled):
-    return {i.get_any_name(): i for i in compiled.inputs}
+def _unet_ports(unet):
+    """The unet's inputs by what they are. A port has several names ("731", "timestep", "timesteps"), so every
+    name counts; anything unmatched falls back to the usual order (sample, timestep, text, guidance)."""
+    order = ["sample", "timestep", "encoder_hidden_states", "timestep_cond"]
+    ports = {}
+    for port in unet.inputs:
+        names = port.get_names()
+        for key in sorted(order, key=len, reverse=True):  # "timestep_cond" before "timestep"
+            if key not in ports and key in names:
+                ports[key] = port
+                break
+    if len(ports) < len(order) and len(unet.inputs) == len(order):
+        ports = dict(zip(order, unet.inputs))
+    missing = [k for k in order if k not in ports]
+    if missing:
+        raise RuntimeError(f"the drawing model has no {missing} input")
+    return ports
 
 
 def draw(prompt, on_status=lambda s: None, stop=None, seed=None):
@@ -124,7 +139,7 @@ def draw(prompt, on_status=lambda s: None, stop=None, seed=None):
 
         ids = np.array([tok.encode(f"{prompt}, {STYLE}")], dtype=np.int64)
         tin = text_encoder.inputs[0]
-        if "i32" in str(tin.get_element_type()):
+        if tin.get_element_type() == ov.Type.i32:
             ids = ids.astype(np.int32)
         cond = text_encoder({tin: ids})[text_encoder.outputs[0]]
 
@@ -132,24 +147,16 @@ def draw(prompt, on_status=lambda s: None, stop=None, seed=None):
         x = rng.standard_normal((1, 4, SIZE // 8, SIZE // 8)).astype(np.float32)
         alphas = alphas_cumprod()
         steps = lcm_timesteps()
-        names = _inputs(unet)
+        ports = _unet_ports(unet)
         w_emb = guidance_embedding(GUIDANCE)
         for i, t in enumerate(steps):
             if stop is not None and stop.is_set():
                 raise Stopped()
             on_status(f"drawing… {i + 1}/{len(steps)} 🎨")
-            feed = {}
-            for name, port in names.items():
-                if "sample" in name:
-                    feed[port] = x
-                elif "timestep_cond" in name or name.startswith("w"):
-                    feed[port] = w_emb
-                elif "timestep" in name:
-                    shape = port.get_partial_shape()
-                    feed[port] = np.array([t] if shape.rank.get_length() else t, dtype=np.float32 if "f" in str(
-                        port.get_element_type()) else np.int64)
-                elif "encoder_hidden_states" in name:
-                    feed[port] = cond
+            step = ports["timestep"]
+            feed = {ports["sample"]: x, ports["encoder_hidden_states"]: cond, ports["timestep_cond"]: w_emb,
+                    step: np.full([1] if step.get_partial_shape().rank.get_length() else [], t,
+                                  dtype=np.int64 if step.get_element_type() == ov.Type.i64 else np.float32)}
             eps = unet(feed)[unet.outputs[0]]
             t_prev = int(steps[i + 1]) if i + 1 < len(steps) else None
             x = lcm_step(x, eps, int(t), t_prev, alphas,
