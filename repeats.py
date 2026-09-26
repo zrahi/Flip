@@ -46,6 +46,8 @@ AGAIN = re.compile(r"\b(again|repeat|one more time|say (that|it) (again|back)|wh
 REDO_NOTE = ("(Hold on: that's basically what you already told me earlier in this chat. Say something new instead: "
              "a different opener, different words and a new point, or ask me one specific thing you haven't asked "
              "yet. Don't apologize or mention this note.)")
+SHORT_NOTE = ("(Still the same as before. Reply in one short sentence that answers only my last message, in "
+              "different words. Don't apologize or mention this note.)")
 ECHO_NOTE = ("(Hold on: that just repeated your instructions and my message back. Answer my message itself now, "
              "like a coach who knows the game. Don't apologize or mention this note.)")
 USER_REPEATED = ("(I sent the same message as last time. Don't answer it the same way again: react to me repeating "

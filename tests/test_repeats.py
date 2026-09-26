@@ -335,3 +335,29 @@ def test_callouts_arent_a_list_of_names():
     r = "A Main, A Ramps, B Alley, B Back, B Link, B Tower, mid vent, mid mail. Fall back and retake B together."
     assert repeats.brief(r) == "Fall back and retake B together."  # (build 49)
     assert repeats.brief("Smoke heaven, flash site, then explode.") == "Smoke heaven, flash site, then explode."
+
+
+def test_a_last_short_try_when_the_same_pitch_comes_twice():
+    import store
+    from brain import Brain
+
+    pitch = ("Yoru? Cool. Let's get into it, what map are you playing on today? If you want to work on a drill, util "
+             "setup or decision, just say the thing.")
+    again = ("Yoru? Cool, let's get into it with the map we're using. Do you want util setups for Yoru, or a drill "
+             "like counter-strafing? Just say the thing.")  # (build 50)
+    replies = iter([pitch, again, again, "haha loud and clear, your coach is right here 😎"])
+
+    class Backend:
+        def answer(self, system, history, tools, run_tool, on_text=None, stop=None, **kw):
+            text = next(replies)
+            on_text(text)
+            return text, False
+
+    if store.account is None:
+        store.use_account(store.create_account("shorttry", "password1"))
+    store.use_profile(store.profiles()[0] if store.profiles() else store.create_profile("Sam"))
+    b = Brain({"name": "Flip", "roblox_studio": False}, "You are {name}.", "http://127.0.0.1:9/v1")
+    b.backend = Backend()
+    b.chat("shorttrychat", "I play Yoru")
+    reply, _, _ = b.chat("shorttrychat", "I do hear a coach.")
+    assert reply == "haha loud and clear, your coach is right here 😎"

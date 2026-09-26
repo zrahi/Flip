@@ -488,7 +488,7 @@ class Brain:
             if on_text:
                 on_text(piece)
 
-        def attempt(messages, compare_to, redo=False):
+        def attempt(messages, compare_to, redo=False, cap=None):
             watch = repeats.Watch(compare_to, emit, every=voice, redo=redo, strict=user_repeated)
 
             def feed(piece):
@@ -498,7 +498,7 @@ class Brain:
                 watch.feed(piece)
 
             got, halted = self.backend.answer(system, messages, tools, self._run_tool, feed, _Either(stop, watch),
-                                              max_tokens=min(limit, REDO_TOKENS) if redo else limit,
+                                              max_tokens=cap or (min(limit, REDO_TOKENS) if redo else limit),
                                               temperature=1.0 if redo else way.temperature, redo=redo)
             if stop is not None and stop.is_set():
                 watch.flush()  # the stop button: what he was in the middle of saying still shows
@@ -548,10 +548,20 @@ class Brain:
                         reply = repeats.fallback(user_repeated, compare)
                         emit(reply)
                 elif reply and not user_repeated:
-                    # a new question: its answer ("you main Jett") beats a canned line, minus lines he already said
-                    kept = repeats.strip(reply, compare[:-1])
-                    if kept != reply and len(repeats.words(kept)) >= 8:
-                        reply = kept
+                    # a new message: one last short try, just an answer to it (a small brain that keeps making the
+                    # same pitch — "Yoru? Cool, let's get into it…" — rarely repeats itself in one sentence)
+                    if on_reset:
+                        on_reset()
+                    short_try, _, last = attempt(history + [{"role": "assistant", "content": tried},
+                                                            {"role": "user", "content": repeats.SHORT_NOTE}],
+                                                 [], redo=True, cap=60)
+                    short_reply = last.text()
+                    if short_reply and not repeats.too_similar(short_reply, compare + [reply]):
+                        reply = short_reply
+                    else:
+                        # its answer ("you main Jett") beats a canned line, minus lines he already said
+                        kept = repeats.strip(reply, compare[:-1])
+                        reply = kept if kept != reply and len(repeats.words(kept)) >= 8 else reply
                         if on_reset:
                             on_reset()
                         emit(reply)
