@@ -1,0 +1,34 @@
+ALL PASSED
+PASS app opens on create account (4.0s): 
+PASS create account (0.5s): 
+PASS create profile (0.5s): 
+PASS brain loads (2.5s): Qwen3-VL-2B
+PASS chat: reply streams in (62.4s): Ayo, Jett — grab the air with Updraft, dash into the site after Tailwind sets up, and use Cloudburst to clear a path while you're still in mid-air. Glide through it like a ghost when falling down, then hit Blade Storm for that ultimate finisher. | {'secs': 62.0, 'first': 54.8, 'kind': 'valorant'}
+PASS chat: second message reuses its work (26.1s): Jett's main is the *updraft* util. Use it when you want to jump high into the air after a tailwind dash — use Tailwind charge as a setup for that, then go straight up with Updraft on your first hit and get ready to land in mid-air while using Cloudburst smoke to block vision or set up for a counter.
+PASS his voice speaks (0.8s): audio/pcm, 81 kB
+PASS new chat (0.0s): 
+PASS memory panel (0.0s): 0 memories
+PASS settings + storage (0.5s): brain: Qwen3-VL-2B-Instructin use1.11 GB | ears (speech-to-text)in use0.56 GB | eyes for Qwen3-VL-2B-Instructin use0.45 GB | his voicein use0.21 GB | Vulkan enginein use< 0.1 GB | your chats, memory + accountsin use< 0.1 GB
+PASS screen sharing: he sees the screen (56.3s): I see the Flip app on your screen, which is a chat and coding assistant that I use to help with math, code, and other tasks. It's showing me a screenshot of a game or program, but I'm not sure what you're doing right now. Just let me know if you want to talk about it or need any help!
+PASS send a picture: he sees it (27.7s): The big square in your picture is red.
+PASS send a file: he reads it (16.6s): The script prints "secret word: pineapple". I notice that you've attached a file named door.lua which contains the following code:luasavecopylocal door = script.Parent
+print('secret word: pineapple')This is a simple Lua script. The line print('secret word: pineapple') will output the text "secret wo
+PASS stop button (16.6s): 1  2  3  4  5  6  7  8  9  10  11  12  13  14  15  16  17  1
+PASS voice call: hears me, talks while typing (56.6s): LATENCY {'endpoint': 839, 'stt': 1460, 'to_request': 88, 'first_token': 14515, 'to_speech': 2101, 'tts': 1324, 'to_play': 12, 'total': 20338} | heard 'Hey Flip, what agent should I play on Ascent, and why?' → "On Ascent, you should play a mid-control agent like Cody. He's great for controlling the M
+PASS voice call: talking over him stops him (80.8s): he stopped 4739ms after I started talking (speech starts ~200ms into the clip), heard 'Wait stop, what gun should I buy on an eco round?' → 'On an eco round, you should go for a squad-based setup using the default spread ' | LATENCY {'endpoint': 518, 'stt': 1507, 'to_request': 98, 'first_token': 150
+PASS modes: fast + math (calculator) (208.1s): fast: "gg  I'm glad you're here—just checking in. Let's keep it fun!" | math: '59382×912=54156384Let me break it down for you:First, multiply 59382 by 912.  Yo' (calculator used)
+PASS valorant: live callouts (27.2s): "Hit the other site. Take space on Phoenix's flank. Plant spike first. Crossfire off it. No time to think — move fast." (22 words)
+PASS no repeats (wsp coach twice…) (68.9s): Ayy, coach mode? I'm on the spot—what's up? 😎 | Welp, got a coach mode call? I'm ready—what's the drill? 🎯 | Got Yoru in the game? Let’s get that coached right now. 💥Yoru's main j | Huh, I hear you—what’s up? 😏 You know we’re just chillin’ here. Anybod
+PASS valorant: match review (62.8s): Verdict: You lost because you didn't set up your entry properly and died early. That’s the biggest problem—dying in the first few rounds without a util or trade partner is what killed you.What lost rounds:  - First death (round 8): This was your #1 l
+PASS valorant: live game data (0.5s): 29 agents, 13 maps, patch notes: True
+PASS valorant: looks up the current meta (139.7s): 5 results (https://rankedmeta.com/valorant); 'VALORANT Meta (September 26, 2026)  Based on patch 13.06 and current meta trends:- Top Agents: Jett (52.9% win rate), Sova (52.2%), Gekko (52.4%) — th'
+PASS makes a picture (drawn on this PC) (151.6s): 'one picture, extra crispy 🖼️': cute frog wearing a gaming headset | Drew 'cute frog wearing a gaming headset' on this PC in 151s (roughness 2) / Made a image with drawn on this PC in 151s
+PASS makes a video (free GPUs, daily limit) (37.7s): here's your clip 🎬
+PASS nothing left behind after making things (0.0s): temp folder empty, 2 made things still in the chat
+PASS a picture of Jett is the real art (0.5s): here's Jett straight from the game's files 🎯
+PASS Ctrl+Alt+V voice shortcut (0.1s): 
+PASS clear caches (0.0s): freed 0.0 GB; 2.57 GB total
+PASS playtest runs (30.7s): math · passWhat's 59382 × 912?$59382 \times 912 = 54,156,384$. That's a big number! Let me know if you need help with anything else — or maybe we can use this for something fun like a math challenge? 
+PASS desktop pet shows up (8.6s): 
+PASS update check (0.1s): on 1.66, newest 1.29
+PASS log out and back in (1.0s): 6

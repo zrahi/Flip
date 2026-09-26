@@ -1,0 +1,194 @@
+[
+ {
+  "step": "app opens on create account",
+  "ok": true,
+  "detail": "",
+  "secs": 4.0
+ },
+ {
+  "step": "create account",
+  "ok": true,
+  "detail": "",
+  "secs": 0.5
+ },
+ {
+  "step": "create profile",
+  "ok": true,
+  "detail": "",
+  "secs": 0.5
+ },
+ {
+  "step": "brain loads",
+  "ok": true,
+  "detail": "Qwen3-VL-2B",
+  "secs": 2.5
+ },
+ {
+  "step": "chat: reply streams in",
+  "ok": true,
+  "detail": "Ayo, Jett \u2014 grab the air with Updraft, dash into the site after Tailwind sets up, and use Cloudburst to clear a path while you're still in mid-air. Glide through it like a ghost when falling down, then hit Blade Storm for that ultimate finisher. | {'secs': 62.0, 'first': 54.8, 'kind': 'valorant'}",
+  "secs": 62.4
+ },
+ {
+  "step": "chat: second message reuses its work",
+  "ok": true,
+  "detail": "Jett's main is the *updraft* util. Use it when you want to jump high into the air after a tailwind dash \u2014 use Tailwind charge as a setup for that, then go straight up with Updraft on your first hit and get ready to land in mid-air while using Cloudburst smoke to block vision or set up for a counter.",
+  "secs": 26.1
+ },
+ {
+  "step": "his voice speaks",
+  "ok": true,
+  "detail": "audio/pcm, 81 kB",
+  "secs": 0.8
+ },
+ {
+  "step": "new chat",
+  "ok": true,
+  "detail": "",
+  "secs": 0.0
+ },
+ {
+  "step": "memory panel",
+  "ok": true,
+  "detail": "0 memories",
+  "secs": 0.0
+ },
+ {
+  "step": "settings + storage",
+  "ok": true,
+  "detail": "brain: Qwen3-VL-2B-Instructin use1.11 GB | ears (speech-to-text)in use0.56 GB | eyes for Qwen3-VL-2B-Instructin use0.45 GB | his voicein use0.21 GB | Vulkan enginein use< 0.1 GB | your chats, memory + accountsin use< 0.1 GB",
+  "secs": 0.5
+ },
+ {
+  "step": "screen sharing: he sees the screen",
+  "ok": true,
+  "detail": "I see the Flip app on your screen, which is a chat and coding assistant that I use to help with math, code, and other tasks. It's showing me a screenshot of a game or program, but I'm not sure what you're doing right now. Just let me know if you want to talk about it or need any help!",
+  "secs": 56.3
+ },
+ {
+  "step": "send a picture: he sees it",
+  "ok": true,
+  "detail": "The big square in your picture is red.",
+  "secs": 27.7
+ },
+ {
+  "step": "send a file: he reads it",
+  "ok": true,
+  "detail": "The script prints \"secret word: pineapple\". I notice that you've attached a file named door.lua which contains the following code:luasavecopylocal door = script.Parent\nprint('secret word: pineapple')This is a simple Lua script. The line print('secret word: pineapple') will output the text \"secret wo",
+  "secs": 16.6
+ },
+ {
+  "step": "stop button",
+  "ok": true,
+  "detail": "1  2  3  4  5  6  7  8  9  10  11  12  13  14  15  16  17  1",
+  "secs": 16.6
+ },
+ {
+  "step": "voice call: hears me, talks while typing",
+  "ok": true,
+  "detail": "LATENCY {'endpoint': 839, 'stt': 1460, 'to_request': 88, 'first_token': 14515, 'to_speech': 2101, 'tts': 1324, 'to_play': 12, 'total': 20338} | heard 'Hey Flip, what agent should I play on Ascent, and why?' \u2192 \"On Ascent, you should play a mid-control agent like Cody. He's great for controlling the M",
+  "secs": 56.6
+ },
+ {
+  "step": "voice call: talking over him stops him",
+  "ok": true,
+  "detail": "he stopped 4739ms after I started talking (speech starts ~200ms into the clip), heard 'Wait stop, what gun should I buy on an eco round?' \u2192 'On an eco round, you should go for a squad-based setup using the default spread ' | LATENCY {'endpoint': 518, 'stt': 1507, 'to_request': 98, 'first_token': 150",
+  "secs": 80.8
+ },
+ {
+  "step": "modes: fast + math (calculator)",
+  "ok": true,
+  "detail": "fast: \"gg  I'm glad you're here\u2014just checking in. Let's keep it fun!\" | math: '59382\u00d7912=54156384Let me break it down for you:First, multiply 59382 by 912.  Yo' (calculator used)",
+  "secs": 208.1
+ },
+ {
+  "step": "valorant: live callouts",
+  "ok": true,
+  "detail": "\"Hit the other site. Take space on Phoenix's flank. Plant spike first. Crossfire off it. No time to think \u2014 move fast.\" (22 words)",
+  "secs": 27.2
+ },
+ {
+  "step": "no repeats (wsp coach twice\u2026)",
+  "ok": true,
+  "detail": "Ayy, coach mode? I'm on the spot\u2014what's up? \ud83d\ude0e | Welp, got a coach mode call? I'm ready\u2014what's the drill? \ud83c\udfaf | Got Yoru in the game? Let\u2019s get that coached right now. \ud83d\udca5Yoru's main j | Huh, I hear you\u2014what\u2019s up? \ud83d\ude0f You know we\u2019re just chillin\u2019 here. Anybod",
+  "secs": 68.9
+ },
+ {
+  "step": "valorant: match review",
+  "ok": true,
+  "detail": "Verdict: You lost because you didn't set up your entry properly and died early. That\u2019s the biggest problem\u2014dying in the first few rounds without a util or trade partner is what killed you.What lost rounds:  - First death (round 8): This was your #1 l",
+  "secs": 62.8
+ },
+ {
+  "step": "valorant: live game data",
+  "ok": true,
+  "detail": "29 agents, 13 maps, patch notes: True",
+  "secs": 0.5
+ },
+ {
+  "step": "valorant: looks up the current meta",
+  "ok": true,
+  "detail": "5 results (https://rankedmeta.com/valorant); 'VALORANT Meta (September 26, 2026)  Based on patch 13.06 and current meta trends:- Top Agents: Jett (52.9% win rate), Sova (52.2%), Gekko (52.4%) \u2014 th'",
+  "secs": 139.7
+ },
+ {
+  "step": "makes a picture (drawn on this PC)",
+  "ok": true,
+  "detail": "'one picture, extra crispy \ud83d\uddbc\ufe0f': cute frog wearing a gaming headset | Drew 'cute frog wearing a gaming headset' on this PC in 151s (roughness 2) / Made a image with drawn on this PC in 151s",
+  "secs": 151.6
+ },
+ {
+  "step": "makes a video (free GPUs, daily limit)",
+  "ok": true,
+  "detail": "here's your clip \ud83c\udfac",
+  "secs": 37.7
+ },
+ {
+  "step": "nothing left behind after making things",
+  "ok": true,
+  "detail": "temp folder empty, 2 made things still in the chat",
+  "secs": 0.0
+ },
+ {
+  "step": "a picture of Jett is the real art",
+  "ok": true,
+  "detail": "here's Jett straight from the game's files \ud83c\udfaf",
+  "secs": 0.5
+ },
+ {
+  "step": "Ctrl+Alt+V voice shortcut",
+  "ok": true,
+  "detail": "",
+  "secs": 0.1
+ },
+ {
+  "step": "clear caches",
+  "ok": true,
+  "detail": "freed 0.0 GB; 2.57 GB total",
+  "secs": 0.0
+ },
+ {
+  "step": "playtest runs",
+  "ok": true,
+  "detail": "math \u00b7 passWhat's 59382 \u00d7 912?$59382 \\times 912 = 54,156,384$. That's a big number! Let me know if you need help with anything else \u2014 or maybe we can use this for something fun like a math challenge? ",
+  "secs": 30.7
+ },
+ {
+  "step": "desktop pet shows up",
+  "ok": true,
+  "detail": "",
+  "secs": 8.6
+ },
+ {
+  "step": "update check",
+  "ok": true,
+  "detail": "on 1.66, newest 1.29",
+  "secs": 0.1
+ },
+ {
+  "step": "log out and back in",
+  "ok": true,
+  "detail": "6",
+  "secs": 1.0
+ }
+]
