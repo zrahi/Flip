@@ -517,6 +517,10 @@ class Brain:
             got, stopped, watch = attempt(history, compare)
         reply = watch.text()
         why = watch.why
+        if not why and not stopped and not voice and way.kind not in ("code", "roblox"):
+            why = repeats.echoes(reply, [system, text])
+            if why and on_reset:
+                on_reset()
         if check and not why and not stopped and not voice:
             why = repeats.too_similar(reply, compare)
             if why and on_reset:
@@ -524,7 +528,8 @@ class Brain:
         if why and not stopped and not (voice and reply):  # (in a call, what he already said stays said)
             tried = got.strip() or reply
             log.info("Repeating (%s), redoing: %s", why, short(tried, 100))
-            note = repeats.REDO_NOTE + (" (Voice call: 1-2 short spoken sentences.)" if voice else "")
+            note = (repeats.ECHO_NOTE if why.startswith("echoes") else repeats.REDO_NOTE) + (
+                " (Voice call: 1-2 short spoken sentences.)" if voice else "")
             compare = compare + [tried]
             # a new question gets its redo answered in full (cutting it off at "You main Jett…" left nothing);
             # the same message again gets the redo watched just as closely
@@ -549,6 +554,7 @@ class Brain:
                     emit(reply)
         if not voice and reply:
             reply = repeats.drop_meta(reply)  # the window shows the final reply, so it can still go here
+            reply = repeats.fresh_opener(reply, earlier)
             if way.kind == "live":
                 reply = repeats.brief(reply)
             elif way.kind not in ("code", "roblox") and estimate_tokens(reply) >= limit * 0.8:

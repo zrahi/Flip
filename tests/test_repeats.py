@@ -244,6 +244,30 @@ def test_filler_words_dont_make_a_repeat():
 
 def test_just_chatting_in_a_valorant_chat_gets_no_strats():
     r = router.route("beforre u get bored or before i get bored", "valorant")  # (from the user's screenshot)
-    assert "doesn't mention the game" in r.note and "Valorant: help with exactly this" not in r.note
+    assert r.kind == "chat" and "Valorant: help with exactly this" not in r.note
+    r = router.route("man i'm so tired today", "auto", "I play Yoru")
+    assert r.kind == "chat" and "valorant" not in r.tags  # no notes full of setups to recite
+    assert router.route("ok what else?", "auto", "I play Yoru").kind == "valorant"  # a follow-up keeps coaching
+    r = router.route("I'm Omen on Bind attack, where do I smoke for a B split?", "auto")
+    assert r.kind == "valorant"  # planning, not a mid-round callout
     r = router.route("how should we hit A on Ascent?", "valorant")
     assert "Valorant: help with exactly this" in r.note
+
+
+def test_parroting_the_instructions_is_caught():
+    system = "You are Flip. You're talking to Sam (that's the name on their profile). Keep replies short."
+    asked = "I keep dying first when I entry on Jett. What am I doing wrong?"
+    bad = ("You're talking to Sam (that's the name on their profile).\n\nI keep dying first when I entry on Jevt. "
+           "What am I doing wrong?\n\nYou're talking to Sam")  # (from the Windows build)
+    assert repeats.echoes(bad, [system, asked])
+    good = "You're dashing in before your team's util lands. Wait for the flash, then Tailwind in and let them trade."
+    assert not repeats.echoes(good, [system, asked])
+    assert not repeats.echoes("Vandal or Phantom? Vandal, the one-tap at any range is worth it.", ["Vandal or Phantom? pick one"])
+
+
+def test_no_ayy_every_time():
+    before = ["Ayy, Sova's ult is Hunter's Fury.", "Nice."]
+    assert repeats.fresh_opener("Ayy — let's break it down. Save this round.", before) == "Let's break it down. Save this round."
+    assert repeats.fresh_opener("Ayyy, Sam — take mid first.", before) == "Take mid first."
+    assert repeats.fresh_opener("Ayy, take mid first.", ["Save.", "Buy."]) == "Ayy, take mid first."  # not used lately
+    assert repeats.fresh_opener("Yoru's a lurker.", before) == "Yoru's a lurker."  # "Yoru" isn't "yo"

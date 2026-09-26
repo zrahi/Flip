@@ -108,7 +108,7 @@ def is_live(text, recent_valorant):
     """A quick mid-match update like "2 A, one heaven" or "Lotus, Phoenix, attack, 3.4k"."""
     t = text.lower().strip()
     words = len(t.split())
-    if words > 16 or (QUESTION.search(t) and words > 4) or NOT_LIVE.search(t):
+    if words > 16 or (QUESTION.search(t) and words > 4) or NOT_LIVE.search(t) or PLANNING.search(t):
         return False
     strong = bool(STRONG_LIVE.search(t) or POSITION.search(t))
     setup = _has(MAPS, t) + _has(AGENTS, t) + bool(re.search(r"\b(atk|def|attack|defense|defence|attacking|defending)\b", t))
@@ -271,6 +271,16 @@ GAME_ASK = re.compile(r"\b(beat|counter|deal with|play (vs|against)|how (do|shou
                       r"beat|counter|take|retake))\b", re.I)
 
 
+GAME_FOLLOW = re.compile(r"\?|^\W*(and|but|so|ok|okay|what|how|why|where|which|when|who|should|can|could|would|is|"
+                         r"are|do|does|did|then|also|more|else|next|now)\b|\b(hold|push|peek|play|playing|buy|save|"
+                         r"smoke|flash|site|round|rank|ranked|agent|map|util|entry|aim|crosshair|sens|comp|team|enemy|"
+                         r"enemies|attack|defen[cs]e|win|lose|lost|won|coach|coaching|tips?|help|teach|improve|main|"
+                         r"duel|clutch|rotate|lurk|trade|eco|force)\b", re.I)
+# a planning question isn't a mid-round callout ("I'm Omen on Bind attack, where do I smoke for a B split?")
+PLANNING = re.compile(r"\b(where (do|should|can) (i|we)|how (do|should|can) (i|we)|what should (i|we) (buy|play|do "
+                      r"on|use)|which|best way|smoke for|set ?up)\b", re.I)
+
+
 def unknown_agent(text):
     """"What does the agent Zephyrus's ultimate do?": a name that isn't a Valorant agent (or None)."""
     try:
@@ -303,7 +313,10 @@ def route(text, mode="auto", recent="", voice=False, pictures=0):
 
     # Just "wsp coach" or "lol ok": no coaching note (it made him recite what he'd do instead of saying hi).
     chit = small_talk(text) and mode not in ("math", "code")
-    val = not chit and (mode == "valorant" or is_valorant(t) or (recent_val and len(t.split()) <= 12))
+    # In a Valorant chat a short follow-up ("ok what else?", "and on defense?") keeps the coaching going; "man
+    # i'm so tired today" is just chat, even there (it got a Yoru setup)
+    val = not chit and (is_valorant(t) or ((mode == "valorant" or (recent_val and len(t.split()) <= 12))
+                                           and bool(GAME_FOLLOW.search(t))))
     math_q = not chit and (mode == "math" or looks_like_math(text))
     roblox = _has(ROBLOX_WORDS, t) or (_has(ROBLOX_WORDS, recent.lower()) and _has(CODE_WORDS, t))
     code = not chit and (mode == "code" or roblox or "```" in text or _has(CODE_WORDS, t))
@@ -355,6 +368,7 @@ def route(text, mode="auto", recent="", voice=False, pictures=0):
                          "abilities or patch numbers.)")
     if TILT.search(t) and r.kind in ("chat", "valorant") and not r.search and not GAME_ASK.search(t):
         r.tags.add("valorant")  # his notes on tilt and flame
+        r.max_tokens = 150
         notes = [n for n in notes if not n.startswith("(Valorant: help with exactly this")]
         notes.append("(They're tilted or getting flamed: be a real friend first, in 1-3 short lines. Take their side a "
                      "bit, then one thing that helps them reset. No strats unless they ask.)")

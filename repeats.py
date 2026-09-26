@@ -46,6 +46,8 @@ AGAIN = re.compile(r"\b(again|repeat|one more time|say (that|it) (again|back)|wh
 REDO_NOTE = ("(Hold on: that's basically what you already told me earlier in this chat. Say something new instead: "
              "a different opener, different words and a new point, or ask me one specific thing you haven't asked "
              "yet. Don't apologize or mention this note.)")
+ECHO_NOTE = ("(Hold on: that just repeated your instructions and my message back. Answer my message itself now, "
+             "like a coach who knows the game. Don't apologize or mention this note.)")
 USER_REPEATED = ("(I sent the same message as last time. Don't answer it the same way again: react to me repeating "
                  "it, or take the chat somewhere new.)")
 # Last resort when even the redo repeats: short, and never one he already used in this chat.
@@ -244,6 +246,36 @@ def brief(reply, most=22):
             done[0] = True
         return True
     return re.sub(r"\s*\n\s*", " ", _keep(reply, fits)).strip() or reply
+
+
+def echoes(reply, sources):
+    """Why the reply is parroting its instructions or the user's message back ("" if it isn't): a small
+    brain sometimes answers with "You're talking to Sam (that's the name on their profile). I keep dying…"."""
+    new = [w for w, _ in sentences(reply) if len(w) >= 5]
+    if not new:
+        return ""
+    old = [w for src in sources for w, _ in sentences(src) if len(w) >= 5]
+    copied = [w for w in new if any(same(w, o) for o in old)]
+    if copied and (len(copied) >= 2 or len(copied) * 2 >= len(new)):
+        return f"echoes its instructions: {' '.join(copied[0])[:60]}"
+    return ""
+
+
+OPENER = re.compile(r"^\s*(ay+|ayo+|yo+|aye+|okay|ok|got it|bet|welp)\b(?:,?\s*(?:sam|bro|man|dude)\b)?[\s,!.…—–-]*", re.I)
+
+
+def fresh_opener(reply, earlier):
+    """reply without its "Ayy —" when one of his last replies opened the same way."""
+    m = OPENER.match(reply)
+    if not m or not reply[m.end():].strip():
+        return reply
+    word = m.group(1).lower().rstrip("y").rstrip("o")
+    for e in earlier[-3:]:
+        n = OPENER.match(e or "")
+        if n and n.group(1).lower().rstrip("y").rstrip("o") == word:
+            rest = reply[m.end():]
+            return rest[:1].upper() + rest[1:]
+    return reply
 
 
 def whole_sentences(reply):
