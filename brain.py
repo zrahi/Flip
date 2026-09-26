@@ -8,6 +8,7 @@ import threading
 import time
 
 import attachments
+import facts
 import knowledge
 import mathtool
 import repeats
@@ -39,6 +40,8 @@ MEMORY_TOOLS = [
 
 
 REPLY_ROOM = 1500      # tokens kept free for his answer
+# a coaching reply that was all made-up names (see facts.py): honest beats confident nonsense
+NOT_SURE = "not 100% sure on that one 🤔 tell me your agent and map and I'll give you something real"
 REDO_TOKENS = 300      # a redo of a repeat: a few fresh sentences, not a whole new essay (keeps it quick)
 
 # Words that mean the chat is about Roblox, so Roblox Studio's tools should come along.
@@ -521,12 +524,23 @@ class Brain:
         check = way.kind in ("chat", "valorant") and not repeats.asks_again(text)
         compare = earlier if check else []
 
+        # a made-up agent or gun ("play Cerberus", "go for a Silent") never goes out: in a call the sentence is
+        # skipped as he says it, in the chat window it's taken out of the final reply
+        gaming = way.kind in ("valorant", "live", "review") or router.is_valorant(text)
+
+        def made_up(sentence):
+            name = facts.made_up(sentence)
+            if name:
+                log.info("Made-up name %r, dropped: %s", name, short(sentence, 100))
+            return bool(name)
+
         def emit(piece):
             if on_text:
                 on_text(piece)
 
         def attempt(messages, compare_to, redo=False, cap=None):
-            watch = repeats.Watch(compare_to, emit, every=voice, redo=redo, strict=user_repeated)
+            watch = repeats.Watch(compare_to, emit, every=voice, redo=redo, strict=user_repeated,
+                                  drop=gaming and made_up)
 
             def feed(piece):
                 if first[0] is None:
@@ -609,12 +623,19 @@ class Brain:
                     if on_reset:
                         on_reset()
                     emit(reply)
+        if voice and gaming and not reply and not stopped:
+            reply = NOT_SURE  # every sentence named a made-up agent or gun
+            emit(reply)
         if not voice and reply:
             reply = repeats.drop_meta(reply)  # the window shows the final reply, so it can still go here
             reply = repeats.fresh_opener(reply, earlier)
             # the app makes pictures and videos, never the reply: no "just made it — the video's in your chat"
             if router.MEDIA_NOTE in way.note and router.MEDIA_CLAIM.search(reply):
                 reply = "I didn't make that yet 😅 say \"make a video of …\" or \"make a picture of …\" and I'll make it for real 🎬"
+            if gaming:
+                kept = repeats._keep(reply, lambda s: not made_up(s))
+                if kept != reply:
+                    reply = kept if len(repeats.words(kept)) >= 4 else NOT_SURE
             if way.kind in ("valorant", "review"):
                 reply = repeats.drop_preamble(reply)  # the answer first, not "you're on the right track…"
             if way.kind == "live":

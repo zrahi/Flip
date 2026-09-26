@@ -26,7 +26,7 @@ def selftest(out_path):
     """Used by the build: checks that everything Flip needs made it into the .exe."""
     lines = []
     for mod in ("webview", "clr", "openai", "mcp", "mcp.client.stdio", "faster_whisper", "ctranslate2", "onnxruntime", "numpy",
-                "sounddevice", "edge_tts", "kokoro_onnx", "pystray", "PIL", "brain", "engine", "voice", "store", "storage", "updater", "screen", "autotest", "router", "knowledge", "mathtool", "usage", "sympy", "attachments", "pypdf", "playtest", "repeats", "generate", "gradio_client", "web", "livedata", "hotkey", "openvino", "draw", "cliptok"):
+                "sounddevice", "edge_tts", "kokoro_onnx", "pystray", "PIL", "brain", "engine", "voice", "store", "storage", "updater", "screen", "autotest", "router", "knowledge", "mathtool", "usage", "sympy", "attachments", "pypdf", "playtest", "repeats", "generate", "gradio_client", "web", "livedata", "hotkey", "openvino", "draw", "cliptok", "facts"):
         try:
             __import__(mod)
             lines.append(f"ok {mod}")

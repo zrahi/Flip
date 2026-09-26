@@ -206,7 +206,9 @@ def test_brain_looks_it_up_before_answering(monkeypatch):
             return "Jett got nerfed this patch, I looked it up.", False
 
     used = []
-    store.use_profile(store.profiles()[0])
+    if store.account is None:
+        store.use_account(store.create_account("metachat", "password1"))
+    store.use_profile(store.profiles()[0] if store.profiles() else store.create_profile("Sam"))
     b = Brain({"name": "Flip", "roblox_studio": False}, "You are {name}.", "http://127.0.0.1:9/v1")
     b.backend, b.on_tool = Backend(), used.append
     b.chat("metachat", "is jett still meta right now?")
@@ -266,3 +268,47 @@ def test_small_talk_in_a_game_chat_drops_strats(monkeypatch):
     b.chat("casualchat", "How do we retake B on Bind as 3?")
     reply, _, _ = b.chat("casualchat", "before u get bored or before i get bored")
     assert "smoke" not in reply and "haha never" in reply
+
+
+def test_made_up_agents_and_guns_are_caught():
+    import facts
+
+    # build 62: "play a mid-tier agent like Cerberus", "go for a Silent or Sova + Silent setup"
+    assert facts.made_up("On Ascent, you should play a mid-tier agent like Cerberus.") == "Cerberus"
+    assert facts.made_up("On eco rounds, go for a Silent or Sova + Silent setup.") == "Silent"
+    assert facts.made_up("Zephyr is a strong duelist on Bind.") == "Zephyr"
+    assert facts.made_up("Play Cerberus on Ascent.") == "Cerberus"
+    for real in ["Play Omen on Ascent, he's a great controller.", "Buy a Sheriff or a Ghost on eco.",
+                 "Lock in KAY/O for info.", "Grab the Operator and hold A Main.", "Play Waylay or Tejo.",
+                 "Jett's best move is Cloudburst into Updraft.", "Buy Light Shields and a Spectre.",
+                 "Try playing like TenZ, he's cracked.", "Play it safe and get the Vandal.", "Pick up the Spike."]:
+        assert facts.made_up(real) is None, real
+
+
+def test_a_call_never_says_a_made_up_agent(monkeypatch):
+    import store
+    from brain import Brain
+
+    lines = ["On Ascent, you should play a mid-tier agent like Cerberus. ",
+             "Omen is great there, smoke mid and heaven. "]
+
+    class Backend:
+        def answer(self, system, history, tools, run_tool, on_text=None, stop=None, **kw):
+            for line in lines:
+                for piece in line.split(" "):
+                    on_text(piece + " ")
+            return "".join(lines), False
+
+    if store.account is None:
+        store.use_account(store.create_account("madeup", "password1"))
+    store.use_profile(store.profiles()[0] if store.profiles() else store.create_profile("Sam"))
+    b = Brain({"name": "Flip", "roblox_studio": False}, "You are {name}.", "http://127.0.0.1:9/v1")
+    b.backend = Backend()
+    said = []
+    reply, _, _ = b.chat("madeup1", "what agent should I play on Ascent?", voice=True, on_text=said.append)
+    assert "Cerberus" not in "".join(said) and "Cerberus" not in reply and "Omen" in reply
+    reply, _, _ = b.chat("madeup2", "what agent should I play on Ascent?", on_text=lambda p: None)
+    assert "Cerberus" not in reply and "Omen" in reply
+    lines[:] = ["Play Cerberus. "]
+    reply, _, _ = b.chat("madeup3", "who should I play on Bind?", on_text=lambda p: None)
+    assert "Cerberus" not in reply and "sure" in reply

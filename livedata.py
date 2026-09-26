@@ -203,6 +203,8 @@ def refresh(force=False):
         NOTES.parent.mkdir(parents=True, exist_ok=True)
         NOTES.write_text(text, encoding="utf-8")
         STATE.write_text(json.dumps({"checked": time.time(), "version": version, "art": art_links(agents, maps)}))
+        import facts
+        facts.reset()  # new agents and guns count as real right away
         log.info("Valorant notes updated: version %s, %d agents (%d characters)", version, len(agents), len(text))
         return True
     except Exception as e:

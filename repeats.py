@@ -347,7 +347,8 @@ class Watch:
     every sentence is checked, since he can't take back what he said: ones he already said are skipped, and
     if he keeps at it he's stopped. It's also the stop signal for the brain (is_set)."""
 
-    def __init__(self, earlier, emit, every=False, redo=False, strict=False):
+    def __init__(self, earlier, emit, every=False, redo=False, strict=False, drop=None):
+        self._drop = drop     # sentences that never go out (a made-up agent in a call: see facts.py)
         self._old = [s for e in earlier for s in sentences(e)]
         self._contents = [content(e) for e in earlier]
         self._strict = strict
@@ -356,8 +357,8 @@ class Watch:
         self._redo = redo
         self._held = ""
         self._lead = ""       # bits with no words (an emoji line) waiting for the first real sentence
-        self._started = not self._old and not redo  # nothing to compare or drop: nothing to hold back
-        self._every = every and bool(self._old)
+        self._started = not self._old and not redo and not (every and drop)  # nothing to check: nothing to hold
+        self._every = every and (bool(self._old) or bool(drop))
         self._skipped = 0
         self.shown = ""
         self.stopped = False
@@ -426,6 +427,8 @@ class Watch:
         parts = sentences(part)
         if parts and META.search(part):
             return  # about his notes or about not repeating: the user never sees those, so it's just noise
+        if parts and self._drop and self._drop(part):
+            return
         if not parts:
             if self._started:
                 self._show(part)
