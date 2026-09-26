@@ -396,16 +396,26 @@ class Watch:
             first = parts[0][0]
             if _real(first) and first in self._openers:
                 return self._stop(f"opens like before: {' '.join(first)}")
+            why = ""
             for w, _ in parts:
                 if len(w) >= 3 and any(same(w, o) for o, _ in self._old):
-                    return self._stop(f"said before: {' '.join(w)}")
+                    why = f"said before: {' '.join(w)}"
+                    break
             # reworded: "I'm in coach mode now, ready to go" → "I'm in the right mode now, ready for that coach session"
-            # (only for the same message again: a new question can share words with the last answer, like
-            # "explain Sova" after "who should I play on Ascent?")
             mine = content(part)
             least, share = (4, 0.5) if self._strict else (5, 0.6)
-            if len(mine) >= least and any(len(mine & c) / len(mine) >= share for c in self._contents):
-                return self._stop(f"same words as before: {part.strip()[:60]}")
+            if not why and len(mine) >= least and any(len(mine & c) / len(mine) >= share for c in self._contents):
+                why = f"same words as before: {part.strip()[:60]}"
+            if why and self._every and not self._strict:
+                # a new question in a call: a new answer can share words with the last one ("explain Sova" after
+                # "who should I play on Ascent?"), and saying nothing is the worst answer: skip just that sentence
+                self._skipped += 1
+                self._lead = ""
+                if self._skipped >= 2:
+                    return self._stop("kept repeating: " + why)
+                return
+            if why:
+                return self._stop(why)
             self._started = True
             self._show(self._lead + part)
             self._lead = ""

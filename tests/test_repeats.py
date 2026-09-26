@@ -310,3 +310,13 @@ def test_a_new_question_can_share_words_with_the_last_answer():
     w = feed(repeats.Watch([before], shown.append, every=True),  # "explain everything about playing Sova"
              ["On Ascent, Sova is a great choice for mid-control. ", "Recon Bolt mid first, then shock the corners."])
     assert not w.stopped and shown  # (the build's call got cut off before he said anything)
+
+
+def test_a_call_skips_a_rehashed_line_but_still_answers():
+    before = ("On Ascent, you should play a mid control agent, like Sova or KAY/O, because they're great for controlling "
+              "mid with utility early.")  # (build 48: he said nothing at all after this)
+    shown = []
+    w = feed(repeats.Watch([before], shown.append, every=True),
+             ["Sova is a great agent for Ascent — especially when you're looking for control and utility in the early "
+              "rounds. ", "Recon Bolt off the mid box first, ", "then shock dart the corner at A main."])
+    assert not w.stopped and "Recon Bolt" in "".join(shown)

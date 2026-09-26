@@ -548,7 +548,13 @@ class Brain:
                         reply = repeats.fallback(user_repeated, compare)
                         emit(reply)
                 elif reply and not user_repeated:
-                    pass  # a new question: its answer ("you main Jett") beats cutting lines or a canned line
+                    # a new question: its answer ("you main Jett") beats a canned line, minus lines he already said
+                    kept = repeats.strip(reply, compare[:-1])
+                    if kept != reply and len(repeats.words(kept)) >= 8:
+                        reply = kept
+                        if on_reset:
+                            on_reset()
+                        emit(reply)
                 else:
                     kept = repeats.strip(reply, compare)
                     reply = kept if len(repeats.words(kept)) >= 4 else repeats.fallback(user_repeated, compare)
