@@ -560,6 +560,9 @@ class Brain:
             reply = repeats.fresh_opener(reply, earlier)
             if way.kind == "live":
                 reply = repeats.brief(reply)
+            elif way.casual:  # small talk in a game chat: a small brain still slips strats in
+                kept = repeats._keep(reply, lambda s: not router.GAME_TALK.search(s))
+                reply = kept if len(repeats.words(kept)) >= 3 else repeats.fallback(False, earlier, casual=True)
             elif way.kind not in ("code", "roblox") and estimate_tokens(reply) >= limit * 0.8:
                 reply = repeats.whole_sentences(reply)  # it ran into its limit: no half sentence at the end
         done = time.time()

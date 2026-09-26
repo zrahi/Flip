@@ -244,14 +244,14 @@ def test_filler_words_dont_make_a_repeat():
 
 def test_just_chatting_in_a_valorant_chat_gets_no_strats():
     r = router.route("beforre u get bored or before i get bored", "valorant")  # (from the user's screenshot)
-    assert r.kind == "chat" and "Valorant: help with exactly this" not in r.note
+    assert r.kind == "chat" and router.COACH_NOTE_START not in r.note
     r = router.route("man i'm so tired today", "auto", "I play Yoru")
     assert r.kind == "chat" and "valorant" not in r.tags  # no notes full of setups to recite
     assert router.route("ok what else?", "auto", "I play Yoru").kind == "valorant"  # a follow-up keeps coaching
     r = router.route("I'm Omen on Bind attack, where do I smoke for a B split?", "auto")
     assert r.kind == "valorant"  # planning, not a mid-round callout
     r = router.route("how should we hit A on Ascent?", "valorant")
-    assert "Valorant: help with exactly this" in r.note
+    assert router.COACH_NOTE_START in r.note
 
 
 def test_parroting_the_instructions_is_caught():

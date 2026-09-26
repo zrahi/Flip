@@ -250,6 +250,7 @@ class Route:
         self.think = False
         self.status = ""             # what the window shows while he works
         self.search = ""             # look this up on the web first (patch, meta, lineups…)
+        self.casual = False          # small talk in the middle of game talk: no strats in the reply
 
     def __repr__(self):
         return f"Route({self.kind}, tags={sorted(self.tags)}, math={self.math_tool}, max={self.max_tokens}, think={self.think})"
@@ -321,6 +322,11 @@ def route(text, mode="auto", recent="", voice=False, pictures=0):
     math_q = not chit and (mode == "math" or looks_like_math(text))
     roblox = _has(ROBLOX_WORDS, t) or (_has(ROBLOX_WORDS, recent.lower()) and _has(CODE_WORDS, t))
     code = not chit and (mode == "code" or roblox or "```" in text or _has(CODE_WORDS, t))
+    if not chit and not val and recent_val and not math_q and not code and not SCREEN_ASK.search(t):
+        r.casual = True  # "before u get bored…" after a Bind question: chat back, no strats
+        r.max_tokens = 80
+        notes.append("(This is casual chat, not about the game. Reply to exactly what I said in 1-2 short lines like a "
+                     "friend. No game advice, no strats.)")
     if chit:
         r.max_tokens = 50  # a long answer to "wsp" only has room to ramble (and repeat itself)
         notes.append("(Just small talk: reply like a friend would, in one short natural line. No pitch about what "
@@ -348,8 +354,10 @@ def route(text, mode="auto", recent="", voice=False, pictures=0):
             r.tags.add("live")
             r.max_tokens = 70
             r.temperature = 0.5
-            notes.append("(Live match: reply with 1-3 short imperative callouts, under 20 words total, using the "
-                         "match state and the map's real callouts. No greetings, emojis or generic advice.)")
+            read = read_situation(text)
+            notes.append("(Live match: " + (read + " " if read else "") + "Reply with 1-3 short imperative callouts "
+                         "for exactly this situation, under 20 words total, using the match state and only this "
+                         "map's real callouts. No greetings, emojis or generic advice.)")
         elif not is_valorant(t) and not FRESH.search(t) and not REVIEW.search(t):
             # "before u get bored or before i get bored" is not a question about the game: forcing the coaching
             # note on every short message in a Valorant chat got it an A-site execute
@@ -363,14 +371,16 @@ def route(text, mode="auto", recent="", voice=False, pictures=0):
                          f"make up abilities. If I probably meant a real agent with a similar name, ask if I meant that "
                          f"one.)")
         else:
-            notes.append("(Valorant: help with exactly this, straight away and confidently, like a coach who's also "
+            notes.append(COACH_NOTE_START + " your first sentence is the answer itself (the spot, the util, the timing), no "
+                         "intro like \"you're on the right track\" or \"let's break it down\". Help with exactly this, "
+                         "confidently, like a coach who's also "
                          "my duo: concrete spots, util and timing for my situation, and why. Don't talk about how "
                          "you coach, just do it. Short unless I ask for detail. Use your notes; don't make up "
                          "abilities or patch numbers.)")
     if TILT.search(t) and r.kind in ("chat", "valorant") and not r.search and not GAME_ASK.search(t):
         r.tags.add("valorant")  # his notes on tilt and flame
-        r.max_tokens = 150
-        notes = [n for n in notes if not n.startswith("(Valorant: help with exactly this")]
+        r.max_tokens = 100
+        notes = [n for n in notes if not n.startswith(COACH_NOTE_START)]
         notes.append("(They're tilted or getting flamed: be a real friend first, in 1-3 short lines. Take their side a "
                      "bit, then one thing that helps them reset. No strats unless they ask.)")
     if math_q:
@@ -465,6 +475,50 @@ def update_match(state, text):
         for k in ("spike", "players", "enemies"):
             s.pop(k, None)
     return s
+
+
+COUNTS = re.compile(r"\b([1-5])\s*(?:v|vs|versus)\s*([1-5])\b", re.I)
+SHOWN = re.compile(r"\b(one|two|three|four|five|[1-5])\s+(a|b|c|mid|heaven|main|long|short|site|hookah|market|garage)\b", re.I)
+NUM = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+
+
+COACH_NOTE_START = "(Valorant:"
+GAME_TALK = re.compile(r"\b(smoke|flash|plant|rotate|execute|heaven|ramps|a main|b main|retake|util|lineup|"
+                       r"crossfire|site|entry|peek|b on|a on|mid control)\w*", re.I)
+
+
+def read_situation(text):
+    """What a mid-round update means, so a small brain calls the right thing instead of a stock line
+    ("2 A, one heaven" got "Save here. Rifles next round.")."""
+    t = text.lower()
+    reads = []
+    if re.search(r"\b(we|i) (planted|plant)|\bspike('s| is)? (down|planted)\b", t) and not re.search(r"\bthey\b.{0,12}plant", t):
+        reads.append("We planted: it's post-plant. Play off the spike from crossfires, don't swing for kills, "
+                     "listen for the tap and stop the defuse.")
+    elif re.search(r"\bthey\b.{0,12}plant", t):
+        reads.append("They planted: it's a retake. Group up, util in first, trade each other, clear the plant spot.")
+    m = COUNTS.search(t)
+    if m:
+        us, them = int(m.group(1)), int(m.group(2))
+        if us < them and reads:  # down, with the spike in play
+            reads.append(f"We're down {us}v{them}: no solo fights, play time and trade together.")
+        elif us < them:
+            reads.append(f"We're down {us}v{them}: no solo fights, stay together and trade, or save if it's lost.")
+        elif us > them:
+            reads.append(f"We're up {us}v{them}: play slow and together, trade, don't give free picks.")
+    hit = re.search(r"\b(hitting|pushing|rushing|going|on) (a|b|c)\b", t)
+    if hit and re.search(r"\b(def|defense|defence|defending)\b", t):
+        reads.append(f"They're hitting {hit.group(2).upper()}: don't fight it alone. Delay with util, fall back "
+                     f"and retake {hit.group(2).upper()} together.")
+    shown = [(NUM.get(a, None) or int(a), b) for a, b in SHOWN.findall(t)]
+    if shown:
+        where = ", ".join(f"{n} {spot.upper() if len(spot) == 1 else spot}" for n, spot in shown)
+        if re.search(r"\b(def|defense|defence|defending)\b", t):
+            reads.append(f"Enemies spotted: {where}. Call the rotate or the stack toward them, keep one on the other site.")
+        else:
+            reads.append(f"Enemies spotted: {where}. That spot is heavy, so say what to do about it (hit the other "
+                         f"site, or trade into it together).")
+    return " ".join(reads)
 
 
 def describe_match(s):

@@ -231,4 +231,38 @@ def test_coaching_knows_the_situation():
     r = router.route("my team keeps flaming me and I'm tilted", "auto")
     assert "valorant" in r.tags and "real friend first" in r.note  # his tilt notes, not strats
     r = router.route("the enemy jett is so toxic lol, how do i beat her", "auto")
-    assert "Valorant: help with exactly this" in r.note  # a real question still gets coached
+    assert router.COACH_NOTE_START in r.note  # a real question still gets coached
+
+
+def test_live_callouts_read_the_situation():
+    import router
+
+    assert "2 A, 1 heaven" in router.read_situation("2 A, one heaven")
+    post = router.read_situation("we planted B, it's 2v3")
+    assert "post-plant" in post and "save" not in post  # never "save" with the spike down
+    d = router.read_situation("we're 3v5 on defense on Split, they're hitting B. what do we do?")
+    assert "retake B together" in d and "down 3v5" in d
+    assert "retake" in router.read_situation("they planted A, 3v2")
+    r = router.route("2 A, one heaven", "auto", "Lotus, Phoenix, attack, 3.4k credits")
+    assert r.kind == "live" and "2 A, 1 heaven" in r.note
+
+
+def test_small_talk_in_a_game_chat_drops_strats(monkeypatch):
+    import store
+    from brain import Brain
+
+    class Backend:
+        def answer(self, system, history, tools, run_tool, on_text=None, stop=None, **kw):
+            text = ("haha never, I'm here all night. But let's flip it: smoke heaven and hit A main with util. "
+                    "What are you up to after?")
+            on_text(text)
+            return text, False
+
+    if store.account is None:
+        store.use_account(store.create_account("casual", "password1"))
+    store.use_profile(store.profiles()[0] if store.profiles() else store.create_profile("Sam"))
+    b = Brain({"name": "Flip", "roblox_studio": False}, "You are {name}.", "http://127.0.0.1:9/v1")
+    b.backend = Backend()
+    b.chat("casualchat", "How do we retake B on Bind as 3?")
+    reply, _, _ = b.chat("casualchat", "before u get bored or before i get bored")
+    assert "smoke" not in reply and "haha never" in reply

@@ -54,6 +54,7 @@ USER_REPEATED = ("(I sent the same message as last time. Don't answer it the sam
 FALLBACK = {
     "repeated": ["you said that already 😭 what's up for real?", "déjà vu 👀 what do you actually need?",
                  "we're going in circles 😭 hit me with something new", "same message twice, I see you 👀 what's the move?"],
+    "casual": ["haha fair 😭", "lowkey same", "real 😭 what's up though?", "haha I'm not going anywhere"],
     "other": ["wait, what do you mean? 👀", "run that back, what exactly do you need?",
               "say that another way? I don't wanna give you the same answer twice", "hmm, what do you want to work on?"],
 }
@@ -286,8 +287,8 @@ def whole_sentences(reply):
     return reply[:ends[-1]].strip() if ends and words(reply[:ends[-1]]) else reply
 
 
-def fallback(user_repeated, earlier):
-    lines = FALLBACK["repeated" if user_repeated else "other"]
+def fallback(user_repeated, earlier, casual=False):
+    lines = FALLBACK["casual" if casual else "repeated" if user_repeated else "other"]
     fresh = [l for l in lines if not any(same(words(l), words(e)) or words(l) == words(e) for e in earlier)]
     return random.choice(fresh or lines)
 
