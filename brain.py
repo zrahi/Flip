@@ -489,7 +489,7 @@ class Brain:
                 on_text(piece)
 
         def attempt(messages, compare_to, redo=False):
-            watch = repeats.Watch(compare_to, emit, every=voice, redo=redo)
+            watch = repeats.Watch(compare_to, emit, every=voice, redo=redo, strict=user_repeated)
 
             def feed(piece):
                 if first[0] is None:

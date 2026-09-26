@@ -409,7 +409,8 @@ def run(api):
 
     def playtest_runs():
         call("openSettings()")
-        wait_for("document.querySelector('#playtest-btn') !== null", 10)
+        # the button is always in the page: wait until Settings has really opened, or it opens over the playtest
+        wait_for("$('#panel').dataset.show === 'settings' && body.classList.contains('panel-open')", 30, "settings")
         call("document.querySelector('#playtest-btn').click()")
         wait_for("$('#panel').dataset.show === 'playtest'", 10, "the playtest panel")
         call("document.querySelector('#pt-go').click()")

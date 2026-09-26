@@ -312,9 +312,10 @@ class Watch:
     every sentence is checked, since he can't take back what he said: ones he already said are skipped, and
     if he keeps at it he's stopped. It's also the stop signal for the brain (is_set)."""
 
-    def __init__(self, earlier, emit, every=False, redo=False):
+    def __init__(self, earlier, emit, every=False, redo=False, strict=False):
         self._old = [s for e in earlier for s in sentences(e)]
         self._contents = [content(e) for e in earlier]
+        self._strict = strict
         self._openers = [ss[0][0] for ss in (sentences(e) for e in earlier[-3:]) if ss]
         self._emit = emit
         self._redo = redo
@@ -399,8 +400,11 @@ class Watch:
                 if len(w) >= 3 and any(same(w, o) for o, _ in self._old):
                     return self._stop(f"said before: {' '.join(w)}")
             # reworded: "I'm in coach mode now, ready to go" → "I'm in the right mode now, ready for that coach session"
+            # (only for the same message again: a new question can share words with the last answer, like
+            # "explain Sova" after "who should I play on Ascent?")
             mine = content(part)
-            if len(mine) >= 4 and any(len(mine & c) / len(mine) >= 0.5 for c in self._contents):
+            least, share = (4, 0.5) if self._strict else (5, 0.6)
+            if len(mine) >= least and any(len(mine & c) / len(mine) >= share for c in self._contents):
                 return self._stop(f"same words as before: {part.strip()[:60]}")
             self._started = True
             self._show(self._lead + part)

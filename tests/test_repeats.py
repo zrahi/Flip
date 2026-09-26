@@ -216,7 +216,7 @@ def test_tool_loops_end_with_an_answer():
 def test_reworded_first_sentence_in_a_call_is_caught_before_it_is_said():
     before = "I'm in coach mode now—ready to go into the game. Let's get that bot frag thing fixed up for you."
     shown = []
-    w = feed(repeats.Watch([before], shown.append, every=True),
+    w = feed(repeats.Watch([before], shown.append, every=True, strict=True),  # ("wsp coach" twice)
              ["I'm in the right mode now—ready for that coach session. ", "Let's get started!"])
     assert w.stopped and shown == []  # (from a real voice call in the Windows build)
 
@@ -302,3 +302,11 @@ def test_a_voice_redo_is_watched_too(monkeypatch):
     said.clear()
     reply, _, _ = b.chat("voiceredo", "do you see my screen?", voice=True, on_text=said.append)
     assert not repeats.too_similar(reply, [first]) and not repeats.too_similar("".join(said), [first])
+
+
+def test_a_new_question_can_share_words_with_the_last_answer():
+    before = "On Ascent, you should play a mid-control agent because it's the most effective in controlling the map."
+    shown = []
+    w = feed(repeats.Watch([before], shown.append, every=True),  # "explain everything about playing Sova"
+             ["On Ascent, Sova is a great choice for mid-control. ", "Recon Bolt mid first, then shock the corners."])
+    assert not w.stopped and shown  # (the build's call got cut off before he said anything)
