@@ -312,3 +312,36 @@ def test_starting_flip_clears_leftover_downloads_but_keeps_what_he_made():
     storage.tidy_on_start()
     assert not generate.TMP.exists()
     assert attachments.path_of("keepchat", made["id"]).read_bytes().startswith(b"\x89PNG")  # never lost
+
+
+def test_ok_makes_what_they_asked_for():
+    h = [{"role": "user", "content": "generate me a video of jett throwing daggers"},
+         {"role": "assistant", "content": "jett's daggers? let me generate that video for you right now, just say the word."}]
+    assert router.pending_request("ok generate it, whatever u decide", h) == ("video", "jett throwing daggers")  # (user's screenshot)
+    assert router.pending_request("ok", h) == ("video", "jett throwing daggers")
+    assert router.pending_request("ok what else?", h) is None
+    offered = [{"role": "user", "content": "ur not generating it"},
+               {"role": "assistant", "content": "i can make a picture of jett mid-throw with daggers in her hand. want that?"}]
+    assert router.pending_request("ok", offered) == ("image", "jett mid-throw with daggers in her hand")
+    made = h + [{"role": "assistant", "content": "filmed it", "attachments": [{"made": True}]}]
+    assert router.pending_request("ok", made) is None  # already made: "ok" is just "ok"
+    assert router.media_request("can you make a vid of reyna dancing") == ("video", "reyna dancing")
+
+
+def test_he_never_claims_he_made_something(monkeypatch):
+    import store
+    from brain import Brain
+
+    class Backend:
+        def answer(self, system, history, tools, run_tool, on_text=None, stop=None, **kw):
+            text = "just made it, jett throwing daggers in slow-mo. watch her land the final dagger mid-air."
+            on_text(text)
+            return text, False
+
+    if store.account is None:
+        store.use_account(store.create_account("honest", "password1"))
+    store.use_profile(store.profiles()[0] if store.profiles() else store.create_profile("Sam"))
+    b = Brain({"name": "Flip", "roblox_studio": False}, "You are {name}.", "http://127.0.0.1:9/v1")
+    b.backend = Backend()
+    reply, _, _ = b.chat("honestchat", "where can i see the video")
+    assert "made it" not in reply and "make a video of" in reply

@@ -54,3 +54,13 @@ def test_ears_keep_up_with_fast_talkers(tmp_path):
         heard = [w for w in words if w in text]
         print(rate, "heard:", text, v.last_stt)
         assert len(heard) >= need and "phantom" in heard and "vandal" in heard, (rate, text, heard)
+
+
+def test_ears_get_casual_fast_talk(tmp_path):
+    v = voice.Voice({})
+    # (a real call: "yo jett is on me im playing lotus rn" was heard as "Yo, Jett, it's Yoru right now, what's your redo?")
+    for rate in (4, 7):
+        speech = _say("yo jett is on me, im playing lotus right now", tmp_path / f"casual{rate}.wav", rate)
+        text = v.transcribe(speech, quick=True).lower()
+        print(rate, "heard:", text, v.last_stt)
+        assert "jett" in text and "lotus" in text and "yoru" not in text and "on me" in text, (rate, text)

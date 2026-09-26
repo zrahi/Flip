@@ -157,8 +157,9 @@ REVIEW_NOTE = ("(Match review: go over my game like a real coach would. Use only
 MAKE = r"(?:make|makes|making|generate|create|draw|paint|sketch|design|render|produce|animate|give|show|send|imagine|film|shoot)"
 PIC = (r"(?:images?|pictures?|pics?|photos?|drawings?|art|artwork|wallpapers?|logos?|icons?|posters?|thumbnails?|"
        r"avatars?|pfps?|profile pic(?:ture)?s?|banners?|memes?|stickers?|illustrations?|portraits?|emotes?|renders?)")
-VID = r"(?:videos?|clips?|animations?|animated|gifs?|movies?|films?|reels?|cutscenes?|trailers?)"
-PLAIN = {"image", "images", "picture", "pictures", "pic", "pics", "photo", "photos", "video", "videos", "clip", "clips"}
+VID = r"(?:videos?|vids?|clips?|animations?|animated|gifs?|movies?|films?|reels?|cutscenes?|trailers?)"
+PLAIN = {"image", "images", "picture", "pictures", "pic", "pics", "photo", "photos", "video", "videos", "vid", "vids", "clip",
+         "clips"}
 SAY = {"pfp": "profile picture", "pfps": "profile pictures", "gif": "short looping clip", "gifs": "short looping clips"}
 UI_WORDS = ["imagelabel", "imagebutton", "decal", "texture id", "asset id", "surfacegui", "billboardgui", "screengui",
             "gui", "html", "css", "img tag"]
@@ -234,6 +235,48 @@ def media_request(text, mode="auto", has_picture=False, last=None):
     if not prompt:
         return None  # "can you make pictures?" is a question about him, not a request
     return kind, prompt
+
+
+GO_AHEAD = re.compile(r"^\W*(?:(?:ok(?:ay)?|k|yes|yeah|yea|yep|ya|sure|bet|pls|please|now|so|then|just|bro|fr)\W*)*"
+                      r"(?:(?:do|make|generate|create|send|show|film|draw|paint) (?:it|that|one|this|the (?:video|vid|clip|"
+                      r"picture|pic|image))|go(?: ahead| for it)?|whatever (?:you|u) (?:decide|want|think|pick)|surprise me|"
+                      r"your (?:call|choice)|you (?:decide|pick|choose)|ok(?:ay)?|yes|yeah|yea|yep|sure|bet|pls|please)?"
+                      r"(?:\W+(?:whatever (?:you|u) (?:decide|want|think|pick)|(?:then|now|already|pls|please|bro)))*\W*$", re.I)
+OFFER = re.compile(r"\b(?:make|generate|create|draw|film|do)\b[^.?!\n]{0,30}?\b(video|vid|clip|picture|pic|image|drawing)"
+                   r"\b of\s+([^.?!\n—]{3,80})", re.I)
+
+
+MEDIA_TALK = re.compile(r"\b(videos?|vids?|clips?|pictures?|pics?|images?|animate|generat\w*|render\w*)\b", re.I)
+MEDIA_NOTE = "(Pictures and videos are made by the app"
+# (only checked when pictures/videos are the topic: then "just made it" can only be a made-up claim)
+MEDIA_CLAIM = re.compile(r"\b(?:just |already )?(?:made|generated|created|filmed|rendered|finished)\b|(?:video|vid|clip|picture|pic|"
+                         r"image)['’]?s? (?:is )?(?:in|up|ready|done|right here)|here['’]?s (?:the|your) (?:video|clip|picture|pic|"
+                         r"image)|can['’]?t (?:generate|make|create) (?:videos?|pictures?|images?)|not generating|let me generate",
+                         re.I)
+
+
+def pending_request(text, messages):
+    """"ok generate it, whatever u decide" after asking for a video (or after he offered one): what to make
+    now, (kind, prompt), or None. Only while nothing was made since."""
+    if not GO_AHEAD.match((text or "").strip()) or len(text.split()) > 9:
+        return None
+    recent = []
+    for m in reversed(messages[-6:]):
+        if m.get("role") == "assistant" and any(a.get("made") for a in m.get("attachments") or []):
+            break  # he made it already: "ok" is just "ok"
+        content = m.get("shown") or m.get("content") or ""
+        if isinstance(content, str):
+            recent.append((m.get("role"), content))
+    for role, content in recent:  # what they asked for comes first
+        want = media_request(content) if role == "user" else None
+        if want:
+            return want
+    for role, content in recent:  # then what he offered ("I'll make a picture of her mid-throw")
+        offer = OFFER.search(content) if role == "assistant" else None
+        if offer:
+            kind = "video" if offer.group(1).lower() in ("video", "vid", "clip") else "image"
+            return kind, offer.group(2).strip(" ,")
+    return None
 
 
 LONGEST = {"code": 2500, "roblox": 2500, "math": 1200, "review": 1000}  # tokens; everything else 800
@@ -377,6 +420,10 @@ def route(text, mode="auto", recent="", voice=False, pictures=0):
                          "my duo: concrete spots, util and timing for my situation, and why. Don't talk about how "
                          "you coach, just do it. Short unless I ask for detail. Use your notes; don't make up "
                          "abilities or patch numbers.)")
+    if MEDIA_TALK.search(t) or MEDIA_TALK.search(recent.lower()):
+        notes.append(MEDIA_NOTE + ", not by your reply: when I ask for one it gets made and "
+                     "shows up in the chat. Never say you made, sent or are making one, and never say you can't make "
+                     "them. If I want one, tell me to say \"make a video of …\" or \"make a picture of …\".)")
     if TILT.search(t) and r.kind in ("chat", "valorant") and not r.search and not GAME_ASK.search(t):
         r.tags.add("valorant")  # his notes on tilt and flame
         r.max_tokens = 100

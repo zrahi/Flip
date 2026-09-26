@@ -356,9 +356,12 @@ class Api:
         if store.current is None:
             return {"error": "pick a profile first 👤"}
         # "draw a…" / "make a video of…": made by free online makers, so it works even while the brain loads
+        chat_so_far = store.load_chat(chat_id) if chat_id else None
         want = router.media_request(text, self._settings.get("mode") or "auto",
                                     any(f.get("kind") == "image" for f in files or []),
-                                    generate.last_made(store.load_chat(chat_id)))
+                                    generate.last_made(chat_so_far))
+        if not want and chat_so_far:  # "ok generate it, whatever u decide" after asking for one
+            want = router.pending_request(text, chat_so_far.get("messages") or [])
         if not want and self._engine.status["state"] != "ready":
             return {"error": "hold up, my brain is still loading 🧠 give me a sec"}
         self._stop.clear()

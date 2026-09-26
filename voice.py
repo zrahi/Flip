@@ -105,11 +105,12 @@ def sounds_finished(text):
 
 FRAME = 512  # 32 ms at 16 kHz: the size the speech detector works on
 
-# Words he should expect to hear, so speech-to-text spells them right.
-HINT_WORDS = ("Flip, Valorant, Jett, Reyna, Raze, Phoenix, Neon, Iso, Yoru, Sova, Skye, Fade, Gekko, KAY/O, Breach, "
-              "Omen, Viper, Astra, Harbor, Clove, Brimstone, Killjoy, Cypher, Sage, Chamber, Deadlock, Vyse, Tejo, "
-              "Waylay, Vandal, Phantom, Operator, Sheriff, Ascent, Haven, Bind, Split, Lotus, Sunset, Icebox, Breeze, "
-              "Pearl, Fracture, Abyss, Radiant, Immortal, clutch, eco, one tap, gg. Coach me. Can you coach me?")
+# How he expects to be talked to, so speech-to-text spells game words right and keeps up with fast, casual talk.
+# (Sentences, not a list of names: a bare list of agents made it hear "Yoru" in "yo jett is on me".)
+HINT_WORDS = ("Yo Flip, what's up bro. Jett is on me, I'm playing Lotus rn, two A one heaven. Reyna and Raze are "
+              "pushing B, Omen smoke, Sova recon dart, Viper wall, Killjoy turret, Cypher cam, Sage wall, Brimstone "
+              "molly. Should I buy a Vandal or Phantom, Sheriff or Spectre on eco? Ascent, Haven, Bind, Split, Icebox, "
+              "Breeze, Pearl, Sunset, Abyss, Fracture. Ngl that was a clutch, one tap, gg, lol. Coach me.")
 
 
 class Ears:
@@ -330,7 +331,9 @@ class Voice:
         def run(window, beam=None):
             extra = {"temperature": 0.0} if quick else {}
             segments, _ = model.transcribe(
-                audio, language="en", beam_size=beam or (1 if quick else 5),
+                # a call's final words get a careful pass (several guesses compared): fast talkers got greedy
+                # one-shot guesses wrong; live captions (tiny) stay quick
+                audio, language="en", beam_size=beam or (1 if tiny else 5),
                 initial_prompt=", ".join(self.names + [HINT_WORDS]),
                 condition_on_previous_text=False, without_timestamps=quick, chunk_length=window,
                 vad_filter=trim_silence, vad_parameters={"threshold": 0.3, "min_silence_duration_ms": 600}, **extra,
@@ -348,9 +351,8 @@ class Voice:
             window = 30
             text, sure = run(window)
         if quick and not tiny and text and sure < UNSURE:
-            # Mumbled or said really fast: the quick greedy pass guessed. A careful pass (several guesses
-            # compared) costs a bit more time only on these, and fixes most of them.
-            again, sure2 = run(window, beam=4)
+            # Mumbled or said really fast: even the careful pass wasn't sure. A wider search once more.
+            again, sure2 = run(window, beam=8)
             log.info("Unsure what I heard (%.2f): %r -> %r (%.2f)", sure, text, again, sure2)
             if again and sure2 >= sure:
                 text = again
