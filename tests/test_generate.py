@@ -280,6 +280,7 @@ def test_plain_agent_or_map_pictures_are_the_real_art(monkeypatch):
         data, ext, source = generate.make_image(ask)
         assert data.startswith(b"\x89PNG") and "official" in source, ask
     monkeypatch.setattr(generate, "_pollinations", lambda prompt, size, stop: (b"painted", "jpg"))
+    monkeypatch.setattr(generate.draw, "available", lambda: False)  # (drawing on the PC is tested in test_draw)
     assert generate.make_image("jett throwing daggers")[0] == b"painted"  # a scene gets painted
     assert generate.make_image("jett and haven")[0] == b"painted"
     server.shutdown()
