@@ -396,3 +396,14 @@ def test_a_tool_call_written_as_text_is_run_not_shown():
                         lambda name, args: ran.append((name, args)) or "results", shown.append)
     assert ran == [("web_search", {"query": "roblox villain"})] and reply == "Ahh, you thought you could stop me?"
     assert "<tool_call>" not in "".join(shown)
+
+
+def test_the_same_message_twice_in_a_call_checks_two_sentences_together():
+    before = "I'm on the go in Valorant right now, you know? Just got a little patch update. You want to see how I handle the new meta today?"
+    shown = []
+    w = feed(repeats.Watch([before], shown.append, every=True, strict=True),  # (build 53: "wsp coach" twice)
+             ["You're on the grind too—just got the patch update in. ", "Want to talk about what's new in the meta?"])
+    assert w.stopped and shown == []
+    shown = []
+    w = feed(repeats.Watch([before], shown.append, every=True, strict=True), ["haha you again? what's good"])
+    assert not w.stopped and shown  # one short sentence still gets judged at the end

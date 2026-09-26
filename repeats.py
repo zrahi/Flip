@@ -377,6 +377,13 @@ class Watch:
         self._held += piece
         while not self.stopped:
             cut = _cut(self._held)
+            if cut and self._strict and not self._started:
+                # the same message again: judge the first two sentences together ("just got a patch update" +
+                # "want to see the new meta?" is a rehash neither one shows alone)
+                second = _cut(self._held[cut:])
+                if not second:
+                    return
+                cut += second
             if not cut:
                 return
             part, self._held = self._held[:cut], self._held[cut:]
