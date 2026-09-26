@@ -407,3 +407,9 @@ def test_the_same_message_twice_in_a_call_checks_two_sentences_together():
     shown = []
     w = feed(repeats.Watch([before], shown.append, every=True, strict=True), ["haha you again? what's good"])
     assert not w.stopped and shown  # one short sentence still gets judged at the end
+
+
+def test_hearing_about_a_coach_isnt_asking_for_coaching():
+    assert router.route("I do hear a coach.", "auto", "I play Yoru").kind == "chat"  # (build 56: another Yoru rehash)
+    assert router.route("I do need a coach", "auto", "wsp coach").kind == "valorant"
+    assert router.route("coach me on jett", "auto").kind == "valorant"

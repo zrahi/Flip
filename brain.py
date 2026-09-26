@@ -580,8 +580,9 @@ class Brain:
                                                             {"role": "user", "content": repeats.SHORT_NOTE}],
                                                  [], redo=True, cap=60)
                     short_reply = last.text()
-                    if short_reply and not repeats.too_similar(short_reply, compare + [reply]):
-                        reply = short_reply
+                    if short_reply and (not repeats.too_similar(short_reply, compare + [reply])
+                                        or len(repeats.words(short_reply)) <= 25):
+                        reply = short_reply  # (a short line that's close beats a long rehash)
                     else:
                         # its answer ("you main Jett") beats a canned line, minus lines he already said
                         kept = repeats.strip(reply, compare[:-1])

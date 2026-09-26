@@ -22,7 +22,8 @@ VAL_WORDS = ["valorant", "valo", "spike", "planted", "defuse", "defusing", "eco 
              "a site", "b site", "c site", "a main", "b main", "mid", "rotate", "stack", "flank", "last guy",
              "buy or save", "save or buy", "eco", "force", "one tap", "peek", "peeking", "util", "utility",
              "pistol", "pistol round", "save round", "plant", "rifle round", "full save", "agent", "agents",
-             "ultimate", "abilities", "ability", "coach", "coach me", "coaching"]
+             "ultimate", "abilities", "ability", "coach me", "coaching", "need a coach", "want a coach",
+             "be my coach", "need coaching"]
 LIVE_WORDS = ["planted", "flank", "flanking", "last guy", "last one", "rotate", "rotating", "push", "pushing",
               "they're", "theyre", "enemy", "enemies", "we planted", "spike down", "heard", "saw", "spotted", "lit",
               "one shot", "tagged", "attack", "attacking", "defense", "defending", "credits", "save or buy",
@@ -319,7 +320,8 @@ SCREEN_ASK = re.compile(r"\b(see|look at|seeing|watch|watching)\b.{0,20}\bscreen
 GAME_FOLLOW = re.compile(r"\?|^\W*(and|but|so|ok|okay|what|how|why|where|which|when|who|should|can|could|would|is|"
                          r"are|do|does|did|then|also|more|else|next|now)\b|\b(hold|push|peek|play|playing|buy|save|"
                          r"smoke|flash|site|round|rank|ranked|agent|map|util|entry|aim|crosshair|sens|comp|team|enemy|"
-                         r"enemies|attack|defen[cs]e|win|lose|lost|won|coach|coaching|tips?|help|teach|improve|main|"
+                         r"enemies|attack|defen[cs]e|win|lose|lost|won|tips?|help|teach|improve|main|"
+                         r"(?:need|want|be my|get) (?:a |my )?coach|coach me|coaching|"
                          r"duel|clutch|rotate|lurk|trade|eco|force)\b", re.I)
 # a planning question isn't a mid-round callout ("I'm Omen on Bind attack, where do I smoke for a B split?")
 PLANNING = re.compile(r"\b(where (do|should|can) (i|we)|how (do|should|can) (i|we)|what should (i|we) (buy|play|do "
