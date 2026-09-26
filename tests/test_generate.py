@@ -178,10 +178,12 @@ def test_pictures(monkeypatch):
     server = HTTPServer(("127.0.0.1", 0), FakePollinations)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     monkeypatch.setattr(generate, "POLLINATIONS", f"http://127.0.0.1:{server.server_port}/prompt/")
+    monkeypatch.setattr(generate.draw, "available", lambda: False)  # (the online backup)
     data, ext, source = generate.make_image("jett dashing on ascent")
     assert data.startswith(b"\x89PNG") and ext == "png" and "Pollinations" in source
     seen = urllib.parse.unquote(FakePollinations.path_seen)
-    assert seen.startswith("/prompt/jett dashing on ascent. Jett is a young Korean woman with short white hair")
+    assert seen.startswith("/prompt/modest, fully clothed") and "jett dashing on ascent. Jett is a young Korean" in seen
+    assert "long dark cargo pants" in seen and "bodysuit" not in seen
     assert "fully clothed" in seen and "safe=true" in seen and "Venice" in seen
 
     FakePollinations.down = True  # down: a free FLUX demo does it instead
@@ -345,3 +347,13 @@ def test_he_never_claims_he_made_something(monkeypatch):
     b.backend = Backend()
     reply, _, _ = b.chat("honestchat", "where can i see the video")
     assert "made it" not in reply and "make a video of" in reply
+
+
+def test_pictures_are_drawn_on_this_pc_first(monkeypatch):
+    asked = []
+    monkeypatch.setattr(generate.draw, "available", lambda: True)
+    monkeypatch.setattr(generate.draw, "draw", lambda prompt, on_status, stop: asked.append(prompt) or b"\x89PNG local")
+    monkeypatch.setattr(generate, "_pollinations", lambda *a: (_ for _ in ()).throw(AssertionError("went online")))
+    data, ext, source = generate.make_image("a frog wearing a gaming headset")
+    assert data == b"\x89PNG local" and source == "drawn on this PC" and "frog" in asked[0]
+    assert generate.describe("anime girl with a sword").startswith("modest, fully clothed")

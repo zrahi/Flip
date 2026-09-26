@@ -26,7 +26,7 @@ def selftest(out_path):
     """Used by the build: checks that everything Flip needs made it into the .exe."""
     lines = []
     for mod in ("webview", "clr", "openai", "mcp", "mcp.client.stdio", "faster_whisper", "ctranslate2", "onnxruntime", "numpy",
-                "sounddevice", "edge_tts", "kokoro_onnx", "pystray", "PIL", "brain", "engine", "voice", "store", "storage", "updater", "screen", "autotest", "router", "knowledge", "mathtool", "usage", "sympy", "attachments", "pypdf", "playtest", "repeats", "generate", "gradio_client", "web", "livedata", "hotkey"):
+                "sounddevice", "edge_tts", "kokoro_onnx", "pystray", "PIL", "brain", "engine", "voice", "store", "storage", "updater", "screen", "autotest", "router", "knowledge", "mathtool", "usage", "sympy", "attachments", "pypdf", "playtest", "repeats", "generate", "gradio_client", "web", "livedata", "hotkey", "openvino", "draw", "cliptok"):
         try:
             __import__(mod)
             lines.append(f"ok {mod}")
@@ -45,6 +45,11 @@ def selftest(out_path):
         lines.append(f"{'ok' if clip and clip['mime'] == 'audio/pcm' and len(clip['audio']) > 10000 else 'FAIL'} his voice speaks")
     except BaseException as e:
         lines.append(f"FAIL his voice speaks: {e!r}")
+    try:  # the on-PC drawer's engine really runs (its CPU plugin made it into the .exe)
+        import openvino as ov
+        lines.append(f"{'ok' if 'CPU' in ov.Core().available_devices else 'FAIL'} drawing engine")
+    except BaseException as e:
+        lines.append(f"FAIL drawing engine: {e!r}")
     try:
         from faster_whisper.vad import get_vad_model
         import numpy as np

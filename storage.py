@@ -160,6 +160,7 @@ def tidy_on_start():
         for f in (DATA / "update").glob("*"):
             f.unlink(missing_ok=True)
         shutil.rmtree(DATA / "tmp" / "made", ignore_errors=True)  # picture/video downloads a crash left behind
+        shutil.rmtree(DATA / "tmp" / "drawer", ignore_errors=True)  # a drawing kit a crash left behind
         _remove_browser_leftovers()
     except Exception:
         log.exception("Tidy-up failed")

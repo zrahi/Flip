@@ -19,6 +19,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+import draw
 from paths import DATA
 
 log = logging.getLogger("flip")
@@ -59,8 +60,8 @@ def not_ok(prompt):
 # What the agents and maps look like: picture AIs don't know Valorant, so "Jett" alone came out as a random
 # (and too sexy) woman. Only looks that are sure; the others get the game's art style and their name.
 LOOKS = {
-    "jett": "a young Korean woman with short white hair, a white-and-blue jacket over a dark bodysuit, swirling blue "
-            "wind, throwing glowing blue kunai knives",
+    "jett": "a young Korean woman with short white hair, a blue-and-white high-collar jacket zipped up, long dark "
+            "cargo pants and boots, swirling blue wind, throwing glowing blue kunai knives",
     "phoenix": "a young Black British man with short curly hair, a white-and-orange jacket, hands wreathed in fire",
     "sage": "a Chinese woman with long black hair in a ponytail, a white-and-teal outfit, a glowing jade healing orb",
     "sova": "a tall Russian man with white-blond hair tied back, a blue hooded coat, one glowing bionic eye, a "
@@ -123,8 +124,13 @@ def describe(prompt):
     if valorant:
         extra.append("Valorant game art style, stylized painterly splash art")
     if agents or others or PEOPLE.search(prompt):
-        extra.append("fully clothed, non-suggestive, safe for work")
+        # first, so a picture maker that only reads the start of a long description still gets it
+        return ". ".join([MODEST, prompt] + extra)
     return ". ".join([prompt] + extra) if extra else prompt
+
+
+MODEST = ("modest, fully clothed and covered up: closed jacket or long sleeves, long pants, no cleavage, no bare "
+          "legs, non-suggestive, safe for work")
 
 
 def official_art(prompt, stop=None):
@@ -151,8 +157,9 @@ def official_art(prompt, stop=None):
     return data, {"image/jpeg": "jpg", "image/webp": "webp"}.get(kind, "png"), a["name"]
 
 
-def make_image(prompt, size=(1024, 1024), on_status=lambda s: None, stop=None):
-    """Returns (bytes, extension, what made it)."""
+def make_image(prompt, size=(1024, 1024), on_status=lambda s: None, stop=None, local=True):
+    """Returns (bytes, extension, what made it). local: draw it on this PC (a video's first frame is made
+    online, the video is anyway)."""
     try:
         found = official_art(prompt, stop)
         if found:
@@ -161,8 +168,16 @@ def make_image(prompt, size=(1024, 1024), on_status=lambda s: None, stop=None):
         raise
     except Exception as e:
         log.warning("Couldn't get the official art: %s", e)
-    on_status("painting it… 🎨")
     prompt = describe(prompt)
+    if local and draw.available():
+        # drawn right here: the drawing kit is downloaded, used and deleted
+        try:
+            return draw.draw(prompt, on_status, stop), "png", "drawn on this PC"
+        except draw.Stopped:
+            raise Stopped()
+        except Exception as e:
+            log.exception("Couldn't draw it on this PC: %s", e)
+    on_status("painting it… 🎨")
     try:
         data, ext = _pollinations(prompt, size, stop)
         return data, ext, "Pollinations (FLUX)"
@@ -214,7 +229,7 @@ def make_video(prompt, picture=None, on_status=lambda s: None, stop=None):
         painted = None
         try:
             if pic == "paint":
-                data, ext, _ = make_image(prompt + ", cinematic film still", (1280, 720), on_status, stop)
+                data, ext, _ = make_image(prompt + ", cinematic film still", (1280, 720), on_status, stop, local=False)
                 TMP.mkdir(parents=True, exist_ok=True)
                 pic = painted = TMP / f"frame-{uuid.uuid4().hex[:8]}.{ext}"
                 pic.write_bytes(data)

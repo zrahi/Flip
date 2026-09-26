@@ -358,8 +358,14 @@ def run(api):
         wait_for("(() => { const i = document.querySelector('.made img'); return i && i.naturalWidth > 100; })()", 60,
                  f"the picture (he said {reply!r})")
         prompt = js("document.querySelector('.made .p').textContent")
-        return f"{reply!r}: {prompt}"
-    step("makes a picture", picture, soft=True)
+        from paths import DATA
+
+        drew = [l for l in (DATA / "flip.log").read_text(encoding="utf-8", errors="ignore").splitlines()
+                if "on this PC in" in l or "Drawing kit downloaded" in l]
+        if not drew:
+            raise Failed(f"it wasn't drawn on this PC (he said {reply!r})")
+        return f"{reply!r}: {prompt} | {' / '.join(l.split('INFO ')[-1] for l in drew[-2:])}"
+    step("makes a picture (drawn on this PC)", picture)
 
     def video():
         reply = chat("now animate it", timeout=1500)
@@ -371,7 +377,10 @@ def run(api):
     def nothing_left():
         import generate
 
+        import draw
+
         left = [str(p) for p in generate.TMP.rglob("*")] if generate.TMP.exists() else []
+        left += [str(p) for p in draw.HOME.rglob("*")] if draw.HOME.exists() else []  # the drawing kit too
         if left:
             raise Failed(f"downloads left behind after making things: {left[:5]}")
         saved = js("document.querySelectorAll('.made img, .made video').length")
