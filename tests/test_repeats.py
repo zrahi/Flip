@@ -361,3 +361,9 @@ def test_a_last_short_try_when_the_same_pitch_comes_twice():
     b.chat("shorttrychat", "I play Yoru")
     reply, _, _ = b.chat("shorttrychat", "I do hear a coach.")
     assert reply == "haha loud and clear, your coach is right here 😎"
+
+
+def test_small_talk_filler_isnt_a_repeat():
+    said = ["I'm on Valorant right now, just chilling in the lobby. You're doing good today—how's it going?"]
+    assert not repeats.too_similar("I'm in coach mode, you know? Check out what's going on in Valorant. You got a good "
+                                   "one today—how's that going?", said)  # (build 51: only "valorant, good, today")

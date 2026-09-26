@@ -23,6 +23,7 @@ more most other some such no nor not only own same too very can will just should
 may also there here yeah yes yo ok okay lol im ive id ill youre youve youd youll weve were theyre theyve dont doesnt
 didnt cant wont isnt arent wasnt werent thats whats lets gonna wanna gotta get got like really
 let know right through feel feeling go going need want tell sure well still even much ayy man bro dude
+hows wheres whos whens whys heres theres one good today day time thing things stuff lot cool nice great
 """.split())
 
 CODE = re.compile(r"```.*?(?:```|$)", re.S)
