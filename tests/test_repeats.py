@@ -413,3 +413,9 @@ def test_hearing_about_a_coach_isnt_asking_for_coaching():
     assert router.route("I do hear a coach.", "auto", "I play Yoru").kind == "chat"  # (build 56: another Yoru rehash)
     assert router.route("I do need a coach", "auto", "wsp coach").kind == "valorant"
     assert router.route("coach me on jett", "auto").kind == "valorant"
+
+
+def test_one_borrowed_phrase_isnt_parroting():
+    system = "You are Flip. (Math: use the math tool for any calculation, then check the result makes sense.)"
+    r = "54156384. Let me use the math tool to check the result makes sense: 59382 times 912 is 54156384."
+    assert not repeats.echoes(r, [system, "what's 59382 × 912?"])  # (build 57: a 4-minute redo for this)

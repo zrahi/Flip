@@ -262,7 +262,8 @@ def echoes(reply, sources):
         return ""
     old = [w for src in sources for w, _ in sentences(src) if len(w) >= 5]
     copied = [w for w in new if any(same(w, o) for o in old)]
-    if copied and (len(copied) >= 2 or len(copied) * 2 >= len(new)):
+    # (one borrowed phrase like "let me use the math tool" is fine: parroting is most of the reply)
+    if len(copied) >= 2 and len(copied) * 2 >= len(new) or (len(new) == 1 and copied and len(copied[0]) >= 8):
         return f"echoes its instructions: {' '.join(copied[0])[:60]}"
     return ""
 
