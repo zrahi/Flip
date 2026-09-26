@@ -233,6 +233,8 @@ def brief(reply, most=22):
     """A mid-round callout: the first sentences, up to about most words (a small brain keeps going and
     reads its notes back: "Lotus, Phoenix, attack A. B is small site…")."""
     total, done = [0], [False]
+    kept = _keep(reply, lambda s: not is_callout_list(s))
+    reply = kept if words(kept) else reply
 
     def fits(sentence):
         n = len(_raw_words(sentence))
@@ -277,6 +279,35 @@ def fresh_opener(reply, earlier):
             rest = reply[m.end():]
             return rest[:1].upper() + rest[1:]
     return reply
+
+
+PREAMBLE = re.compile(r"^\W*(?:ay+,?\s*)?(?:(?:sam|bro|man)\W+)?(you'?re (?:on the right track|right on track|in the right "
+                      r"spot|asking about)|let'?s (?:break (?:it|this) down|get (?:into it|real|started)|go straight|take it)|"
+                      r"got (?:it|you)|good question|great question|i see you'?re|okay|alright)\b[^.!?\n—–]{0,90}[.!?—–-]*\s*",
+                      re.I)
+
+
+def drop_preamble(reply):
+    """The answer without an intro sentence ("You're on the right track with that retake plan."), if the
+    rest still says something."""
+    out = reply
+    for _ in range(2):  # "Ayy, Sam, you're asking about retakes? Let's break this down like a pro."
+        m = PREAMBLE.match(out)
+        if not m:
+            break
+        rest = out[m.end():].lstrip(" —–-:\n")
+        if len(words(rest)) < 6:
+            break
+        out = rest[:1].upper() + rest[1:]
+    return out
+
+
+def is_callout_list(sentence):
+    """"A Main, A Ramps, B Alley, B Back, B Link": reading the map's callout list instead of making a call."""
+    items = [x.strip() for x in re.split(r",|/|&|\band\b", sentence) if x.strip()]
+    return len(items) >= 4 and sum(len(x.split()) <= 3 for x in items) >= len(items) - 1 and not re.search(
+        r"\b(smoke|flash|hold|push|fall|retake|save|rotate|stack|trade|play|wait|don'?t|go|hit|clear|watch)\b",
+        items[0], re.I)
 
 
 def whole_sentences(reply):

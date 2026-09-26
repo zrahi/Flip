@@ -371,8 +371,8 @@ def route(text, mode="auto", recent="", voice=False, pictures=0):
                          f"make up abilities. If I probably meant a real agent with a similar name, ask if I meant that "
                          f"one.)")
         else:
-            notes.append(COACH_NOTE_START + " your first sentence is the answer itself (the spot, the util, the timing), no "
-                         "intro like \"you're on the right track\" or \"let's break it down\". Help with exactly this, "
+            notes.append(COACH_NOTE_START + " your first sentence is the answer itself (the spot, the util, the timing), "
+                         "with no intro before it. Help with exactly this, "
                          "confidently, like a coach who's also "
                          "my duo: concrete spots, util and timing for my situation, and why. Don't talk about how "
                          "you coach, just do it. Short unless I ask for detail. Use your notes; don't make up "

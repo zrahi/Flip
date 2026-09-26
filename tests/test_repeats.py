@@ -320,3 +320,18 @@ def test_a_call_skips_a_rehashed_line_but_still_answers():
              ["Sova is a great agent for Ascent — especially when you're looking for control and utility in the early "
               "rounds. ", "Recon Bolt off the mid box first, ", "then shock dart the corner at A main."])
     assert not w.stopped and "Recon Bolt" in "".join(shown)
+
+
+def test_coaching_answers_start_with_the_answer():
+    assert repeats.drop_preamble("You're on the right track with that retake plan — focus on B link first, then flash in "
+                                 "together.") == "Focus on B link first, then flash in together."
+    assert repeats.drop_preamble("Ayy, Sam — you're asking about retaking B on Bind as 3? Let's break this down like a "
+                                 "pro. Group up at B link first, then flash in.") == "Group up at B link first, then flash in."
+    assert repeats.drop_preamble("Smoke B Garden early, then hit together.") == "Smoke B Garden early, then hit together."
+    assert repeats.drop_preamble("Got it.") == "Got it."  # never leaves nothing
+
+
+def test_callouts_arent_a_list_of_names():
+    r = "A Main, A Ramps, B Alley, B Back, B Link, B Tower, mid vent, mid mail. Fall back and retake B together."
+    assert repeats.brief(r) == "Fall back and retake B together."  # (build 49)
+    assert repeats.brief("Smoke heaven, flash site, then explode.") == "Smoke heaven, flash site, then explode."

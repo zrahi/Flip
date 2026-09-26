@@ -564,6 +564,8 @@ class Brain:
         if not voice and reply:
             reply = repeats.drop_meta(reply)  # the window shows the final reply, so it can still go here
             reply = repeats.fresh_opener(reply, earlier)
+            if way.kind in ("valorant", "review"):
+                reply = repeats.drop_preamble(reply)  # the answer first, not "you're on the right track…"
             if way.kind == "live":
                 reply = repeats.brief(reply)
             elif way.casual:  # small talk in a game chat: a small brain still slips strats in
