@@ -193,14 +193,14 @@ class LocalBackend:
         Returns (reply, stopped). redo: he's redoing a reply that repeated himself."""
         messages = [{"role": "system", "content": system}] + history
         spec = self._spec(tools)
-        shown = ""
-        for step in range(MAX_TOOL_STEPS):
+        shown, nudged = "", False
+        for step in range(MAX_TOOL_STEPS + 1):  # (+1: room for one nudge to answer)
             # No more tools on the last step, or once the chat plus tool results nearly fill what the brain can
             # hold: he has to answer now. (A math problem called the calculator until the request no longer
             # fit, and the fallback then looped for half an hour on a processor.)
             used = sum(estimate_tokens(m.get("content") or "") + len(json.dumps(m.get("tool_calls") or "")) // 3
                        for m in messages)
-            if step == MAX_TOOL_STEPS - 1 or used + min(max_tokens or 800, REPLY_ROOM) > self.context * 0.85:
+            if step >= MAX_TOOL_STEPS - 1 or used + min(max_tokens or 800, REPLY_ROOM) > self.context * 0.85:
                 spec = []
             kwargs = self._kwargs(messages, spec, max_tokens, temperature, redo)
             kwargs["stream"] = True
@@ -230,6 +230,12 @@ class LocalBackend:
             if not calls and "<tool_call>" in text:
                 calls = text_tool_calls(text) if spec else {}
                 text = text.split("<tool_call>", 1)[0]
+                if not calls and not (shown + text).strip() and not nudged:
+                    # it asked for a tool it can't have now (the last step has none): nudge it to answer
+                    nudged = True
+                    messages.append({"role": "user", "content": "(No more tools or searching: answer me now with what "
+                                                                 "you already know.)"})
+                    continue
             if not calls:
                 return clean_reply(shown + text), False
             shown += visible(text)
@@ -399,6 +405,12 @@ class Brain:
                 log.info("math %s -> %s", args, text)
                 return text
             if name == "web_search":
+                way = getattr(self, "last_route", None)
+                if way is not None and way.kind in ("review", "live"):
+                    return "(Not needed: answer from what they told you and your notes, right now.)"
+                self._searches = getattr(self, "_searches", 0) + 1
+                if self._searches > 1:  # one search per reply is enough: more only makes a CPU reply slower
+                    return "(You already searched. Answer now with what you found.)"
                 text = web.lookup(str(args.get("query", "")), limit=2000)
                 log.info("web search %r -> %d characters", args.get("query"), len(text))
                 return text[:MAX_TOOL_OUTPUT]
@@ -425,6 +437,7 @@ class Brain:
         theirs = " ".join(str(m["content"]) for m in history[-4:] if m["role"] == "user")
         way = router.route(text, mode, theirs, voice, pictures=sum(a["kind"] == "image" for a in attached) + bool(image))
         self.last_route = way
+        self._searches = 0
         log.info("%s", way)
         self.on_route(way)
         prompt = text

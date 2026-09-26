@@ -419,3 +419,28 @@ def test_one_borrowed_phrase_isnt_parroting():
     system = "You are Flip. (Math: use the math tool for any calculation, then check the result makes sense.)"
     r = "54156384. Let me use the math tool to check the result makes sense: 59382 times 912 is 54156384."
     assert not repeats.echoes(r, [system, "what's 59382 × 912?"])  # (build 57: a 4-minute redo for this)
+
+
+def test_a_tool_call_on_the_last_step_still_ends_in_an_answer():
+    import types
+
+    from brain import LocalBackend
+
+    b = LocalBackend.__new__(LocalBackend)
+    b.model, b.context = "x", 8192
+    asked = []
+
+    class Stream(list):
+        def close(self):
+            pass
+
+    def create(**kw):  # (build 58: a match review searched three times, then ended empty)
+        asked.append(kw.get("tools"))
+        nudged = any("No more tools" in str(m.get("content")) for m in kw["messages"])
+        text = "Verdict: you died first too often." if nudged else '<tool_call>{"name": "web_search", "arguments": {}}</tool_call>'
+        delta = types.SimpleNamespace(content=text, tool_calls=None)
+        return Stream([types.SimpleNamespace(choices=[types.SimpleNamespace(delta=delta)])])
+
+    b.client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
+    reply, _ = b.answer("sys", [{"role": "user", "content": "review"}], [], lambda n, a: "x")  # no tools at all
+    assert reply == "Verdict: you died first too often." and len(asked) == 2
