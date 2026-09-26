@@ -1,0 +1,179 @@
+2026-09-26 15:39:15,097 INFO Starting Flip
+2026-09-26 15:39:15,859 INFO Voice shortcut ready: ctrl+alt+v
+huggingface_hub\utils\_validators.py:206: UserWarning: The `local_dir_use_symlinks` argument is deprecated and ignored in `snapshot_download`. Downloading to a local directory does not use symlinks anymore.
+2026-09-26 15:39:16,972 INFO HTTP Request: GET https://huggingface.co/api/models/Systran/faster-whisper-tiny.en/revision/main "HTTP/1.1 200 OK"
+2026-09-26 15:39:17,020 INFO HTTP Request: GET https://huggingface.co/api/models/Systran/faster-whisper-tiny.en/tree/0d3d19a32d3338f10357c0889762bd8d64bbdeba?recursive=true&expand=false "HTTP/1.1 200 OK"
+2026-09-26 15:39:17,126 INFO HTTP Request: HEAD https://huggingface.co/Systran/faster-whisper-tiny.en/resolve/0d3d19a32d3338f10357c0889762bd8d64bbdeba/vocabulary.txt "HTTP/1.1 307 Temporary Redirect"
+2026-09-26 15:39:17,133 INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-tiny.en/0d3d19a32d3338f10357c0889762bd8d64bbdeba/vocabulary.txt?%2FSystran%2Ffaster-whisper-tiny.en%2Fresolve%2F0d3d19a32d3338f10357c0889762bd8d64bbdeba%2Fvocabulary.txt=&etag=%22ee695b8d3e3c10d488304e04468efec4ca27554a%22 "HTTP/1.1 200 OK"
+2026-09-26 15:39:17,138 INFO HTTP Request: HEAD https://huggingface.co/Systran/faster-whisper-tiny.en/resolve/0d3d19a32d3338f10357c0889762bd8d64bbdeba/model.bin "HTTP/1.1 302 Found"
+2026-09-26 15:39:17,140 INFO HTTP Request: GET https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-tiny.en/0d3d19a32d3338f10357c0889762bd8d64bbdeba/vocabulary.txt?%2FSystran%2Ffaster-whisper-tiny.en%2Fresolve%2F0d3d19a32d3338f10357c0889762bd8d64bbdeba%2Fvocabulary.txt=&etag=%22ee695b8d3e3c10d488304e04468efec4ca27554a%22 "HTTP/1.1 200 OK"
+Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+2026-09-26 15:39:17,144 WARNING Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+2026-09-26 15:39:17,148 INFO HTTP Request: HEAD https://huggingface.co/Systran/faster-whisper-tiny.en/resolve/0d3d19a32d3338f10357c0889762bd8d64bbdeba/tokenizer.json "HTTP/1.1 307 Temporary Redirect"
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+2026-09-26 15:39:17,148 WARNING Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+2026-09-26 15:39:17,154 INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-tiny.en/0d3d19a32d3338f10357c0889762bd8d64bbdeba/tokenizer.json?%2FSystran%2Ffaster-whisper-tiny.en%2Fresolve%2F0d3d19a32d3338f10357c0889762bd8d64bbdeba%2Ftokenizer.json=&etag=%2215d7bdf9ba25718ca2504eec6a8f02bc55af0a6a%22 "HTTP/1.1 200 OK"
+2026-09-26 15:39:17,162 INFO HTTP Request: GET https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-tiny.en/0d3d19a32d3338f10357c0889762bd8d64bbdeba/tokenizer.json?%2FSystran%2Ffaster-whisper-tiny.en%2Fresolve%2F0d3d19a32d3338f10357c0889762bd8d64bbdeba%2Ftokenizer.json=&etag=%2215d7bdf9ba25718ca2504eec6a8f02bc55af0a6a%22 "HTTP/1.1 200 OK"
+2026-09-26 15:39:17,182 INFO HTTP Request: HEAD https://huggingface.co/Systran/faster-whisper-tiny.en/resolve/0d3d19a32d3338f10357c0889762bd8d64bbdeba/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-09-26 15:39:17,187 INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-tiny.en/0d3d19a32d3338f10357c0889762bd8d64bbdeba/config.json?%2FSystran%2Ffaster-whisper-tiny.en%2Fresolve%2F0d3d19a32d3338f10357c0889762bd8d64bbdeba%2Fconfig.json=&etag=%224065bb3bed375b176d5465be117d2d202e210434%22 "HTTP/1.1 200 OK"
+2026-09-26 15:39:17,195 INFO HTTP Request: GET https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-tiny.en/0d3d19a32d3338f10357c0889762bd8d64bbdeba/config.json?%2FSystran%2Ffaster-whisper-tiny.en%2Fresolve%2F0d3d19a32d3338f10357c0889762bd8d64bbdeba%2Fconfig.json=&etag=%224065bb3bed375b176d5465be117d2d202e210434%22 "HTTP/1.1 200 OK"
+2026-09-26 15:39:17,212 INFO HTTP Request: GET https://huggingface.co/Systran/faster-whisper-tiny.en/resolve/0d3d19a32d3338f10357c0889762bd8d64bbdeba/model.bin "HTTP/1.1 302 Found"
+2026-09-26 15:39:17,386 INFO HTTP Request: GET https://us.aws.cdn.hf.co/xet-bridge-us/655f215132537bcc8d7cc5a2/dc8d6759b5ee4be73e674a434ac73432b4cbc5027e8c2d86a24acda5e332001f?user_id=public&response-content-disposition=inline%3B+filename*%3DUTF-8%27%27model.bin%3B+filename%3D%22model.bin%22%3B&X-Xet-Cas-Uid=public&response-content-type=application%2Foctet-stream&xip=XBiaKMQK2Ow&Expires=1790440757&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly91cy5hd3MuY2RuLmhmLmNvL3hldC1icmlkZ2UtdXMvNjU1ZjIxNTEzMjUzN2JjYzhkN2NjNWEyL2RjOGQ2NzU5YjVlZTRiZTczZTY3NGE0MzRhYzczNDMyYjRjYmM1MDI3ZThjMmQ4NmEyNGFjZGE1ZTMzMjAwMWZcXD91c2VyX2lkPXB1YmxpYyZyZXNwb25zZS1jb250ZW50LWRpc3Bvc2l0aW9uPWlubGluZSUzQitmaWxlbmFtZSUyQSUzRFVURi04JTI3JTI3bW9kZWwuYmluJTNCK2ZpbGVuYW1lJTNEJTIybW9kZWwuYmluJTIyJTNCJlgtWGV0LUNhcy1VaWQ9cHVibGljJnJlc3BvbnNlLWNvbnRlbnQtdHlwZT1hcHBsaWNhdGlvbiUyRm9jdGV0LXN0cmVhbSZ4aXA9WEJpYUtNUUsyT3ciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkVwb2NoVGltZSI6MTc5MDQ0MDc1N319fV19&Signature=MEUCIQCzFLXF6%7E-oj8JbCJJL09vgQHpY8cwqx3-9jM7qkp2dlwIgC2M4OpewGDrgvL3hnsgpGj4GN-c3tTnJJdy21JsHKXI_&Key-Pair-Id=01KXEF4KZ1B6FV465MAWR4M21F&Hash-Algorithm=SHA256 "HTTP/1.1 200 OK"
+2026-09-26 15:39:17,722 INFO Valorant notes updated: version 13.06, 29 agents (38740 characters)
+2026-09-26 15:39:18,607 INFO Processing audio with duration 00:03.000
+2026-09-26 15:39:19,298 INFO Mic permission handler ready
+2026-09-26 15:39:19,492 INFO Processing audio with duration 00:03.000
+2026-09-26 15:39:19,903 INFO HTTP Request: GET https://huggingface.co/api/models/Systran/faster-whisper-small.en/revision/main "HTTP/1.1 200 OK"
+2026-09-26 15:39:19,951 INFO HTTP Request: GET https://huggingface.co/api/models/Systran/faster-whisper-small.en/tree/d1d751a5f8271d482d14ca55d9e2deeebbae577f?recursive=true&expand=false "HTTP/1.1 200 OK"
+2026-09-26 15:39:19,992 INFO HTTP Request: HEAD https://huggingface.co/Systran/faster-whisper-small.en/resolve/d1d751a5f8271d482d14ca55d9e2deeebbae577f/tokenizer.json "HTTP/1.1 307 Temporary Redirect"
+2026-09-26 15:39:19,998 INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-small.en/d1d751a5f8271d482d14ca55d9e2deeebbae577f/tokenizer.json?%2FSystran%2Ffaster-whisper-small.en%2Fresolve%2Fd1d751a5f8271d482d14ca55d9e2deeebbae577f%2Ftokenizer.json=&etag=%2215d7bdf9ba25718ca2504eec6a8f02bc55af0a6a%22 "HTTP/1.1 200 OK"
+2026-09-26 15:39:20,006 INFO HTTP Request: GET https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-small.en/d1d751a5f8271d482d14ca55d9e2deeebbae577f/tokenizer.json?%2FSystran%2Ffaster-whisper-small.en%2Fresolve%2Fd1d751a5f8271d482d14ca55d9e2deeebbae577f%2Ftokenizer.json=&etag=%2215d7bdf9ba25718ca2504eec6a8f02bc55af0a6a%22 "HTTP/1.1 200 OK"
+2026-09-26 15:39:20,047 INFO HTTP Request: HEAD https://huggingface.co/Systran/faster-whisper-small.en/resolve/d1d751a5f8271d482d14ca55d9e2deeebbae577f/vocabulary.txt "HTTP/1.1 307 Temporary Redirect"
+2026-09-26 15:39:20,055 INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-small.en/d1d751a5f8271d482d14ca55d9e2deeebbae577f/vocabulary.txt?%2FSystran%2Ffaster-whisper-small.en%2Fresolve%2Fd1d751a5f8271d482d14ca55d9e2deeebbae577f%2Fvocabulary.txt=&etag=%22ee695b8d3e3c10d488304e04468efec4ca27554a%22 "HTTP/1.1 200 OK"
+2026-09-26 15:39:20,063 INFO HTTP Request: GET https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-small.en/d1d751a5f8271d482d14ca55d9e2deeebbae577f/vocabulary.txt?%2FSystran%2Ffaster-whisper-small.en%2Fresolve%2Fd1d751a5f8271d482d14ca55d9e2deeebbae577f%2Fvocabulary.txt=&etag=%22ee695b8d3e3c10d488304e04468efec4ca27554a%22 "HTTP/1.1 200 OK"
+2026-09-26 15:39:20,104 INFO HTTP Request: HEAD https://huggingface.co/Systran/faster-whisper-small.en/resolve/d1d751a5f8271d482d14ca55d9e2deeebbae577f/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-09-26 15:39:20,105 INFO HTTP Request: HEAD https://huggingface.co/Systran/faster-whisper-small.en/resolve/d1d751a5f8271d482d14ca55d9e2deeebbae577f/model.bin "HTTP/1.1 302 Found"
+Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+2026-09-26 15:39:20,108 WARNING Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+2026-09-26 15:39:20,113 INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-small.en/d1d751a5f8271d482d14ca55d9e2deeebbae577f/config.json?%2FSystran%2Ffaster-whisper-small.en%2Fresolve%2Fd1d751a5f8271d482d14ca55d9e2deeebbae577f%2Fconfig.json=&etag=%22ced3fd5bbb3e9f7664658065d2d36164712cf1d5%22 "HTTP/1.1 200 OK"
+2026-09-26 15:39:20,120 INFO HTTP Request: GET https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-small.en/d1d751a5f8271d482d14ca55d9e2deeebbae577f/config.json?%2FSystran%2Ffaster-whisper-small.en%2Fresolve%2Fd1d751a5f8271d482d14ca55d9e2deeebbae577f%2Fconfig.json=&etag=%22ced3fd5bbb3e9f7664658065d2d36164712cf1d5%22 "HTTP/1.1 200 OK"
+2026-09-26 15:39:20,151 INFO HTTP Request: GET https://huggingface.co/Systran/faster-whisper-small.en/resolve/d1d751a5f8271d482d14ca55d9e2deeebbae577f/model.bin "HTTP/1.1 302 Found"
+2026-09-26 15:39:20,331 INFO HTTP Request: GET https://us.aws.cdn.hf.co/xet-bridge-us/655f218d65bc71935d8223a5/e69fec6e40a2e2d94f4aa4d57d93cd238f81300502d7d86a9180621d75c2567b?user_id=public&response-content-disposition=inline%3B+filename*%3DUTF-8%27%27model.bin%3B+filename%3D%22model.bin%22%3B&xip=XBiaKMQK2Ow&response-content-type=application%2Foctet-stream&X-Xet-Cas-Uid=public&Expires=1790440760&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly91cy5hd3MuY2RuLmhmLmNvL3hldC1icmlkZ2UtdXMvNjU1ZjIxOGQ2NWJjNzE5MzVkODIyM2E1L2U2OWZlYzZlNDBhMmUyZDk0ZjRhYTRkNTdkOTNjZDIzOGY4MTMwMDUwMmQ3ZDg2YTkxODA2MjFkNzVjMjU2N2JcXD91c2VyX2lkPXB1YmxpYyZyZXNwb25zZS1jb250ZW50LWRpc3Bvc2l0aW9uPWlubGluZSUzQitmaWxlbmFtZSUyQSUzRFVURi04JTI3JTI3bW9kZWwuYmluJTNCK2ZpbGVuYW1lJTNEJTIybW9kZWwuYmluJTIyJTNCJnhpcD1YQmlhS01RSzJPdyZyZXNwb25zZS1jb250ZW50LXR5cGU9YXBwbGljYXRpb24lMkZvY3RldC1zdHJlYW0mWC1YZXQtQ2FzLVVpZD1wdWJsaWMiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkVwb2NoVGltZSI6MTc5MDQ0MDc2MH19fV19&Signature=MEQCICpPlycMcEaPXtJz4UloKp44hbGDm8MXX9%7Es81zLzmCsAiAUeZoFRkYzZ5Qid1HObt%7EY6He4qYThQletusk6isBAUA__&Key-Pair-Id=01KXEF4KZ1B6FV465MAWR4M21F&Hash-Algorithm=SHA256 "HTTP/1.1 200 OK"
+2026-09-26 15:39:22,748 INFO Brain ready: Qwen3-VL-2B on CPU only (slow: no graphics card found, or it doesn't have enough memory)
+2026-09-26 15:39:23,071 INFO HTTP Request: GET http://127.0.0.1:8765/v1/models "HTTP/1.1 200 OK"
+2026-09-26 15:39:23,609 INFO Route(valorant, tags=['valorant'], math=False, max=800, think=False)
+2026-09-26 15:39:26,873 INFO Processing audio with duration 00:03.000
+2026-09-26 15:39:29,570 INFO Processing audio with duration 00:03.000
+2026-09-26 15:39:31,933 INFO Speech-to-text speed: {'captions': 0.37, 'calls': 2.36} -> calls use base.en
+2026-09-26 15:39:48,014 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:39:48,025 INFO Brain warmed up
+2026-09-26 15:39:48,062 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:40:03,847 INFO Reply took 40.2s (first words after 34.2s)
+2026-09-26 15:40:04,101 INFO Route(valorant, tags=['valorant'], math=False, max=800, think=False)
+2026-09-26 15:40:04,194 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:40:18,581 INFO Repeating (said before: jett best move is alway to use cloudburst after a kill), redoing: Jett's best move is always to use Cloudburst after a kill—get the smoke blocking vision right at th…
+2026-09-26 15:40:18,802 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:40:34,227 INFO Reply took 30.1s (first words after 11.0s)
+2026-09-26 15:40:37,395 INFO Route(chat, tags=[], math=False, max=800, think=False)
+2026-09-26 15:40:37,491 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:41:19,713 INFO Reply took 42.3s (first words after 30.9s)
+2026-09-26 15:41:20,165 INFO Route(chat, tags=[], math=False, max=800, think=False)
+2026-09-26 15:41:20,251 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:41:39,108 INFO Reply took 18.9s (first words after 18.2s)
+2026-09-26 15:41:39,323 INFO Route(code, tags=[], math=False, max=2500, think=False)
+2026-09-26 15:41:39,420 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:41:45,324 INFO Reply took 6.0s (first words after 5.1s)
+2026-09-26 15:41:45,428 INFO Route(chat, tags=[], math=False, max=800, think=False)
+2026-09-26 15:41:45,497 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:41:56,050 INFO Reply took 10.6s (first words after 3.1s)
+2026-09-26 15:42:00,490 INFO HTTP Request: GET https://huggingface.co/api/models/Systran/faster-whisper-base.en/revision/main "HTTP/1.1 200 OK"
+2026-09-26 15:42:00,532 INFO HTTP Request: GET https://huggingface.co/api/models/Systran/faster-whisper-base.en/tree/3d3d5dee26484f91867d81cb899cfcf72b96be6c?recursive=true&expand=false "HTTP/1.1 200 OK"
+2026-09-26 15:42:00,576 INFO HTTP Request: HEAD https://huggingface.co/Systran/faster-whisper-base.en/resolve/3d3d5dee26484f91867d81cb899cfcf72b96be6c/tokenizer.json "HTTP/1.1 307 Temporary Redirect"
+2026-09-26 15:42:00,583 INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-base.en/3d3d5dee26484f91867d81cb899cfcf72b96be6c/tokenizer.json?%2FSystran%2Ffaster-whisper-base.en%2Fresolve%2F3d3d5dee26484f91867d81cb899cfcf72b96be6c%2Ftokenizer.json=&etag=%2215d7bdf9ba25718ca2504eec6a8f02bc55af0a6a%22 "HTTP/1.1 200 OK"
+2026-09-26 15:42:00,592 INFO HTTP Request: GET https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-base.en/3d3d5dee26484f91867d81cb899cfcf72b96be6c/tokenizer.json?%2FSystran%2Ffaster-whisper-base.en%2Fresolve%2F3d3d5dee26484f91867d81cb899cfcf72b96be6c%2Ftokenizer.json=&etag=%2215d7bdf9ba25718ca2504eec6a8f02bc55af0a6a%22 "HTTP/1.1 200 OK"
+2026-09-26 15:42:00,642 INFO HTTP Request: HEAD https://huggingface.co/Systran/faster-whisper-base.en/resolve/3d3d5dee26484f91867d81cb899cfcf72b96be6c/vocabulary.txt "HTTP/1.1 307 Temporary Redirect"
+2026-09-26 15:42:00,649 INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-base.en/3d3d5dee26484f91867d81cb899cfcf72b96be6c/vocabulary.txt?%2FSystran%2Ffaster-whisper-base.en%2Fresolve%2F3d3d5dee26484f91867d81cb899cfcf72b96be6c%2Fvocabulary.txt=&etag=%22ee695b8d3e3c10d488304e04468efec4ca27554a%22 "HTTP/1.1 200 OK"
+2026-09-26 15:42:00,656 INFO HTTP Request: GET https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-base.en/3d3d5dee26484f91867d81cb899cfcf72b96be6c/vocabulary.txt?%2FSystran%2Ffaster-whisper-base.en%2Fresolve%2F3d3d5dee26484f91867d81cb899cfcf72b96be6c%2Fvocabulary.txt=&etag=%22ee695b8d3e3c10d488304e04468efec4ca27554a%22 "HTTP/1.1 200 OK"
+2026-09-26 15:42:00,681 INFO HTTP Request: HEAD https://huggingface.co/Systran/faster-whisper-base.en/resolve/3d3d5dee26484f91867d81cb899cfcf72b96be6c/model.bin "HTTP/1.1 302 Found"
+Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+2026-09-26 15:42:00,683 WARNING Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+2026-09-26 15:42:00,699 INFO HTTP Request: HEAD https://huggingface.co/Systran/faster-whisper-base.en/resolve/3d3d5dee26484f91867d81cb899cfcf72b96be6c/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-09-26 15:42:00,705 INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-base.en/3d3d5dee26484f91867d81cb899cfcf72b96be6c/config.json?%2FSystran%2Ffaster-whisper-base.en%2Fresolve%2F3d3d5dee26484f91867d81cb899cfcf72b96be6c%2Fconfig.json=&etag=%22594369787efe617005d199b03739ee0ead7e3ab7%22 "HTTP/1.1 200 OK"
+2026-09-26 15:42:00,712 INFO HTTP Request: GET https://huggingface.co/api/resolve-cache/models/Systran/faster-whisper-base.en/3d3d5dee26484f91867d81cb899cfcf72b96be6c/config.json?%2FSystran%2Ffaster-whisper-base.en%2Fresolve%2F3d3d5dee26484f91867d81cb899cfcf72b96be6c%2Fconfig.json=&etag=%22594369787efe617005d199b03739ee0ead7e3ab7%22 "HTTP/1.1 200 OK"
+2026-09-26 15:42:00,725 INFO HTTP Request: GET https://huggingface.co/Systran/faster-whisper-base.en/resolve/3d3d5dee26484f91867d81cb899cfcf72b96be6c/model.bin "HTTP/1.1 302 Found"
+2026-09-26 15:42:01,023 INFO HTTP Request: GET https://us.aws.cdn.hf.co/xet-bridge-us/655f2140e1b6d15cfe9deff7/fbdbb36cc3abbe07a49292568b524d2749f5b4fc679a07c496c340a347c01718?X-Xet-Cas-Uid=public&user_id=public&xip=XBiaKMQK2Ow&response-content-disposition=inline%3B+filename*%3DUTF-8%27%27model.bin%3B+filename%3D%22model.bin%22%3B&response-content-type=application%2Foctet-stream&Expires=1790440920&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly91cy5hd3MuY2RuLmhmLmNvL3hldC1icmlkZ2UtdXMvNjU1ZjIxNDBlMWI2ZDE1Y2ZlOWRlZmY3L2ZiZGJiMzZjYzNhYmJlMDdhNDkyOTI1NjhiNTI0ZDI3NDlmNWI0ZmM2NzlhMDdjNDk2YzM0MGEzNDdjMDE3MThcXD9YLVhldC1DYXMtVWlkPXB1YmxpYyZ1c2VyX2lkPXB1YmxpYyZ4aXA9WEJpYUtNUUsyT3cmcmVzcG9uc2UtY29udGVudC1kaXNwb3NpdGlvbj1pbmxpbmUlM0IrZmlsZW5hbWUlMkElM0RVVEYtOCUyNyUyN21vZGVsLmJpbiUzQitmaWxlbmFtZSUzRCUyMm1vZGVsLmJpbiUyMiUzQiZyZXNwb25zZS1jb250ZW50LXR5cGU9YXBwbGljYXRpb24lMkZvY3RldC1zdHJlYW0iLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkVwb2NoVGltZSI6MTc5MDQ0MDkyMH19fV19&Signature=MEQCIExfACazmdsoXE3vAYUFWozogPMoIf7Xwoc9tS79rd9MAiAqrrpkBs1fvhe5xuZmeZKAx%7EPAKqjIqDwv3IZ16kCiug__&Key-Pair-Id=01KXEF4KZ1B6FV465MAWR4M21F&Hash-Algorithm=SHA256 "HTTP/1.1 200 OK"
+2026-09-26 15:42:03,409 INFO Processing audio with duration 00:01.024
+2026-09-26 15:42:04,072 INFO Heard 1.0s of audio in 3.67s (base.en, window 4s, sure -0.22): 'Hey Flip.'
+2026-09-26 15:42:04,073 INFO Processing audio with duration 00:03.200
+2026-09-26 15:42:04,866 INFO Heard 3.2s of audio in 0.79s (base.en, window 5s, sure -0.06): 'Hey Flip, what agent should I play on Ascent?'
+2026-09-26 15:42:04,867 INFO Processing audio with duration 00:04.096
+2026-09-26 15:42:05,692 INFO Heard 4.1s of audio in 0.82s (base.en, window 6s, sure -0.11): 'Hey Flip, what agent should I play on Ascent, and why?'
+2026-09-26 15:42:05,705 INFO Route(valorant, tags=['valorant'], math=False, max=120, think=False)
+2026-09-26 15:42:05,847 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:42:17,520 INFO LATENCY endpoint 780ms | stt 1504ms | to_request 58ms | first_token 9524ms | to_speech 1333ms | tts 895ms | to_play 10ms | total 14103ms
+2026-09-26 15:42:19,463 WARNING words count mismatch on 100.0% of the lines (1/1)
+2026-09-26 15:42:34,629 INFO Reply took 28.9s (first words after 9.5s)
+2026-09-26 15:42:40,510 INFO Route(valorant, tags=['valorant'], math=False, max=120, think=False)
+2026-09-26 15:42:40,607 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:42:55,043 WARNING words count mismatch on 100.0% of the lines (1/1)
+2026-09-26 15:42:57,746 INFO Processing audio with duration 00:00.704
+2026-09-26 15:42:58,089 INFO Reply took 17.5s (first words after 10.6s)
+2026-09-26 15:42:58,653 INFO Heard 0.7s of audio in 0.91s (base.en, window 4s, sure -0.57): 'Wait.'
+2026-09-26 15:42:58,653 INFO Processing audio with duration 00:01.120
+2026-09-26 15:42:59,314 INFO Heard 1.1s of audio in 0.66s (base.en, window 4s, sure -0.26): 'Wait, stop.'
+2026-09-26 15:42:59,341 INFO Processing audio with duration 00:03.200
+2026-09-26 15:42:59,693 INFO Heard 3.2s of audio in 0.35s (tiny, window 5s, sure -0.19): 'Wait, stop. What gun should I buy on an eco round?'
+2026-09-26 15:42:59,693 INFO Processing audio with duration 00:03.520
+2026-09-26 15:43:00,455 INFO Heard 3.5s of audio in 0.76s (base.en, window 5s, sure -0.13): 'Wait stop, what gun should I buy on an eco round?'
+2026-09-26 15:43:00,477 INFO Route(valorant, tags=['valorant'], math=False, max=120, think=False)
+2026-09-26 15:43:00,622 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:43:10,895 WARNING words count mismatch on 100.0% of the lines (1/1)
+2026-09-26 15:43:12,132 INFO LATENCY endpoint 525ms | stt 475ms | to_request 66ms | first_token 8414ms | to_speech 1954ms | tts 1232ms | to_play 7ms | total 12673ms
+2026-09-26 15:43:31,237 INFO Reply took 30.7s (first words after 8.4s)
+2026-09-26 15:43:38,069 INFO Route(chat, tags=[], math=False, max=300, think=False)
+2026-09-26 15:43:38,147 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:43:45,057 INFO Reply took 7.0s (first words after 3.6s)
+2026-09-26 15:43:45,603 INFO Route(math, tags=[], math=True, max=1200, think=False)
+2026-09-26 15:43:46,219 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:46:38,869 INFO Reply took 172.7s (first words after 19.4s)
+2026-09-26 15:46:39,967 INFO Route(live, tags=['live', 'valorant'], math=False, max=70, think=False)
+2026-09-26 15:46:40,241 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:46:49,142 INFO Reply took 9.2s (first words after 5.7s)
+2026-09-26 15:46:49,554 INFO Route(live, tags=['live', 'valorant'], math=False, max=70, think=False)
+2026-09-26 15:46:49,645 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:46:58,311 INFO Reply took 8.7s (first words after 6.7s)
+2026-09-26 15:46:58,664 INFO Route(chat, tags=[], math=False, max=50, think=False)
+2026-09-26 15:46:58,737 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:47:02,001 INFO Reply took 3.3s (first words after 1.0s)
+2026-09-26 15:47:02,185 INFO Route(chat, tags=[], math=False, max=50, think=False)
+2026-09-26 15:47:02,260 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:47:05,037 INFO Repeating (said before: coach mode on), redoing: Coach mode on? Let's go. I
+2026-09-26 15:47:05,239 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:47:08,356 INFO The redo repeated too (same words as before: Coach mode is live! Let’s go pro with the next match.): Coach mode is live! Let’s go pro with the next match. 🚀
+2026-09-26 15:47:08,360 INFO Reply took 6.2s (first words after 2.2s)
+2026-09-26 15:47:08,722 INFO Route(valorant, tags=['valorant'], math=False, max=800, think=False)
+2026-09-26 15:47:08,821 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:48:05,837 INFO Reply took 57.1s (first words after 11.1s)
+2026-09-26 15:48:05,979 INFO Route(chat, tags=[], math=False, max=80, think=False)
+2026-09-26 15:48:06,046 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:48:21,690 INFO Reply took 15.7s (first words after 8.6s)
+2026-09-26 15:48:22,103 INFO Route(review, tags=['review', 'valorant'], math=False, max=1000, think=False)
+2026-09-26 15:48:22,207 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:48:42,694 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:49:21,490 INFO Reply took 59.4s (first words after 21.6s)
+2026-09-26 15:49:22,581 INFO Valorant notes updated: version 13.06, 29 agents (38740 characters)
+2026-09-26 15:49:22,692 INFO Route(valorant, tags=['valorant'], math=False, max=800, think=False)
+2026-09-26 15:49:23,621 INFO Looked up "what's the current meta in valorant right now?" (2940 characters)
+2026-09-26 15:49:23,796 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:51:50,809 INFO Repeating (reused: so let break it down), redoing: Let's check the current meta for Valorant right now. I'll use that info directly. You're in a dueli…
+2026-09-26 15:51:50,885 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:52:40,833 INFO The redo repeated too (55% the same words): Ayy — I'm not saying anything about the same thing again. Let's go with something fresh. You mentio…
+2026-09-26 15:52:40,911 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:52:49,048 INFO Reply took 205.4s (first words after 50.4s)
+2026-09-26 15:52:53,220 INFO Made a image with Pollinations (FLUX) in 3s
+2026-09-26 15:52:53,482 INFO HTTP Request: GET https://huggingface.co/api/spaces/zerogpu-aoti/wan2-2-fp8da-aoti-faster "HTTP/1.1 200 OK"
+2026-09-26 15:52:53,521 INFO HTTP Request: GET https://huggingface.co/api/spaces/zerogpu-aoti/wan2-2-fp8da-aoti-faster/runtime "HTTP/1.1 200 OK"
+2026-09-26 15:52:53,840 INFO HTTP Request: GET https://zerogpu-aoti-wan2-2-fp8da-aoti-faster.hf.space/config "HTTP/1.1 200 OK"
+2026-09-26 15:52:54,095 INFO HTTP Request: GET https://zerogpu-aoti-wan2-2-fp8da-aoti-faster.hf.space/gradio_api/info?serialize=False "HTTP/1.1 200 OK"
+2026-09-26 15:52:54,098 INFO Making a video with zerogpu-aoti/wan2-2-fp8da-aoti-faster /generate_video
+2026-09-26 15:52:54,131 INFO HTTP Request: HEAD https://huggingface.co/api/telemetry/py_client/initiated "HTTP/1.1 200 OK"
+2026-09-26 15:52:54,347 INFO HTTP Request: GET https://zerogpu-aoti-wan2-2-fp8da-aoti-faster.hf.space/gradio_api/heartbeat/c2baae10-5505-4173-9eaa-e1ea6966b466 "HTTP/1.1 200 OK"
+2026-09-26 15:52:54,369 INFO HTTP Request: POST https://zerogpu-aoti-wan2-2-fp8da-aoti-faster.hf.space/gradio_api/upload "HTTP/1.1 200 OK"
+2026-09-26 15:52:54,596 INFO HTTP Request: POST https://zerogpu-aoti-wan2-2-fp8da-aoti-faster.hf.space/gradio_api/queue/join "HTTP/1.1 200 OK"
+2026-09-26 15:52:54,826 INFO HTTP Request: GET https://zerogpu-aoti-wan2-2-fp8da-aoti-faster.hf.space/gradio_api/queue/data?session_hash=c2baae10-5505-4173-9eaa-e1ea6966b466 "HTTP/1.1 200 OK"
+2026-09-26 15:53:29,809 INFO HTTP Request: GET https://zerogpu-aoti-wan2-2-fp8da-aoti-faster.hf.space/gradio_api/file=/tmp/gradio/76a0d7c4a751305a6247beecfc43bd9d86b8bce975dada21816a44b95ef0c6f0/tmpb3_mb2ei.mp4 "HTTP/1.1 200 OK"
+2026-09-26 15:53:30,130 INFO Made a video with zerogpu-aoti/wan2-2-fp8da-aoti-faster in 37s
+2026-09-26 15:53:30,698 INFO Made a image with the official Jett art from the game in 0s
+2026-09-26 15:53:31,326 INFO Cleaned up 0.00 GB
+2026-09-26 15:53:31,918 INFO Route(math, tags=[], math=True, max=1200, think=False)
+2026-09-26 15:53:32,173 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:53:36,414 INFO math {'expression': '59382 * 912', 'op': 'evaluate'} -> 54156384
+2026-09-26 15:53:36,483 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:53:42,216 INFO Reply took 10.3s (first words after 5.2s)
+2026-09-26 15:53:42,223 INFO Route(math, tags=[], math=True, max=1200, think=False)
+2026-09-26 15:53:42,314 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:53:47,917 INFO Reply took 5.7s (first words after 5.7s)
+2026-09-26 15:53:48,354 INFO Pet window is see-through
+2026-09-26 15:53:57,292 INFO HTTP Request: POST http://127.0.0.1:8765/v1/chat/completions "HTTP/1.1 200 OK"
+2026-09-26 15:53:57,293 INFO Brain warmed up
+2026-09-26 15:53:57,435 INFO Autotest done: all passed

@@ -1,0 +1,194 @@
+[
+ {
+  "step": "app opens on create account",
+  "ok": true,
+  "detail": "",
+  "secs": 4.1
+ },
+ {
+  "step": "create account",
+  "ok": true,
+  "detail": "",
+  "secs": 0.5
+ },
+ {
+  "step": "create profile",
+  "ok": true,
+  "detail": "",
+  "secs": 0.5
+ },
+ {
+  "step": "brain loads",
+  "ok": true,
+  "detail": "Qwen3-VL-2B",
+  "secs": 1.9
+ },
+ {
+  "step": "chat: reply streams in",
+  "ok": true,
+  "detail": "Jett\u2019s best move is to use Cloudburst on a wall after a kill\u2014get that smoke blocking vision, then dash into the site with Tailwind and Updraft to get high above enemies before using Blade Storm to finish them off. It's all about timing and positioning right at the edge of the screen. | {'secs': 40.2",
+  "secs": 40.4
+ },
+ {
+  "step": "chat: second message reuses its work",
+  "ok": true,
+  "detail": "but wait, what if the enemy has that wall blocking vision? Then just take them out with Tailwind and jump right in. That's how you lock 'em down before they get past your line of sight. You need to stay on top of it\u2014don't just dash into the site; be ready for the wind shift when you use Updraft.So, ",
+  "secs": 30.6
+ },
+ {
+  "step": "his voice speaks",
+  "ok": true,
+  "detail": "audio/pcm, 81 kB",
+  "secs": 0.8
+ },
+ {
+  "step": "new chat",
+  "ok": true,
+  "detail": "",
+  "secs": 0.5
+ },
+ {
+  "step": "memory panel",
+  "ok": true,
+  "detail": "0 memories",
+  "secs": 0.0
+ },
+ {
+  "step": "settings + storage",
+  "ok": true,
+  "detail": "brain: Qwen3-VL-2B-Instructin use1.11 GB | ears (speech-to-text)in use0.56 GB | eyes for Qwen3-VL-2B-Instructin use0.45 GB | his voicein use0.21 GB | Vulkan enginein use< 0.1 GB | your chats, memory + accountsin use< 0.1 GB",
+  "secs": 0.5
+ },
+ {
+  "step": "screen sharing: he sees the screen",
+  "ok": true,
+  "detail": "I see the Flip app on your screen, which is a chat and coding assistant that's currently sharing your entire screen. It's running on Windows 10/11 and shows you're in a live session with me. You can use the share screen button to send it over to us.Just noticed something interesting: there's a \"Flip",
+  "secs": 43.3
+ },
+ {
+  "step": "send a picture: he sees it",
+  "ok": true,
+  "detail": "The big square in your picture is red.",
+  "secs": 19.1
+ },
+ {
+  "step": "send a file: he reads it",
+  "ok": true,
+  "detail": "The secret word your script prints is \"pineapple\".",
+  "secs": 6.0
+ },
+ {
+  "step": "stop button",
+  "ok": true,
+  "detail": "1  2  3  4  5  6  7  8  9  10  11  12  13  14  15  16  17  1",
+  "secs": 11.1
+ },
+ {
+  "step": "voice call: hears me, talks while typing",
+  "ok": true,
+  "detail": "LATENCY {'endpoint': 780, 'stt': 1504, 'to_request': 58, 'first_token': 9524, 'to_speech': 1333, 'tts': 895, 'to_play': 10, 'total': 14103} | heard 'Hey Flip, what agent should I play on Ascent, and why?' \u2192 'You should play a strong mid-lane agent on Ascent. The best choice is a high-performing pl' ",
+  "secs": 43.9
+ },
+ {
+  "step": "voice call: talking over him stops him",
+  "ok": true,
+  "detail": "he stopped 2984ms after I started talking (speech starts ~200ms into the clip), heard 'Wait stop, what gun should I buy on an eco round?' \u2192 \"On an eco round, you should use a weapon that's reliable in the mid-lane. The be\" | LATENCY {'endpoint': 525, 'stt': 475, 'to_request': 66, 'first_token': 8414",
+  "secs": 57.0
+ },
+ {
+  "step": "modes: fast + math (calculator)",
+  "ok": true,
+  "detail": "fast: \"gg  wait, you're talking about the game again? Let me know what's up. I'm on a break right now but ready to help if you need it.\" | math: '59382\u00d7912=54156384Let me break it down step by step:First, multiply 59382 by 912' (calculator used)",
+  "secs": 182.3
+ },
+ {
+  "step": "valorant: live callouts",
+  "ok": true,
+  "detail": "'Hit the A site first. Plant near the wall. Delay the door rotation. Take space from the main entrance.' (19 words)",
+  "secs": 18.6
+ },
+ {
+  "step": "no repeats (wsp coach twice\u2026)",
+  "ok": true,
+  "detail": "Ayy, Coach mode on? I'm ready to take the mic and guide you through th | we're going in circles \ud83d\ude2d hit me with something new | Yoru's got a cool setup \u2014 the fakeout, blindside, gatecrash, dimension | Huh? Coach mode is just in the chat now? That's cool. I'm not sure wha",
+  "secs": 83.4
+ },
+ {
+  "step": "valorant: match review",
+  "ok": true,
+  "detail": "Verdict: You lost because you didn't use your util properly when it mattered most \u2014 especially with Yoru. The real issue? You were over-rotating, and the enemy was using their rotation sound to get in early.What lost rounds:  1. First death at round ",
+  "secs": 59.8
+ },
+ {
+  "step": "valorant: live game data",
+  "ok": true,
+  "detail": "29 agents, 13 maps, patch notes: True",
+  "secs": 0.7
+ },
+ {
+  "step": "valorant: looks up the current meta",
+  "ok": true,
+  "detail": "5 results (https://rankedmeta.com/valorant); \"Let's go with something fresh.You mentioned that you were using fakeout + blindside in your setup and were over-rotating on sound, but did you actuall\"",
+  "secs": 206.5
+ },
+ {
+  "step": "makes a picture",
+  "ok": true,
+  "detail": "'cooked this up for you \ud83d\udc68\\u200d\ud83c\udf73': cute frog wearing a gaming headset",
+  "secs": 4.1
+ },
+ {
+  "step": "makes a video (free GPUs, daily limit)",
+  "ok": true,
+  "detail": "action \ud83c\udfac lmk if you want changes",
+  "secs": 37.1
+ },
+ {
+  "step": "nothing left behind after making things",
+  "ok": true,
+  "detail": "temp folder empty, 2 made things still in the chat",
+  "secs": 0.0
+ },
+ {
+  "step": "a picture of Jett is the real art",
+  "ok": true,
+  "detail": "here's Jett straight from the game's files \ud83c\udfaf",
+  "secs": 0.5
+ },
+ {
+  "step": "Ctrl+Alt+V voice shortcut",
+  "ok": true,
+  "detail": "",
+  "secs": 0.0
+ },
+ {
+  "step": "clear caches",
+  "ok": true,
+  "detail": "freed 0.0 GB; 2.57 GB total",
+  "secs": 0.0
+ },
+ {
+  "step": "playtest runs",
+  "ok": true,
+  "detail": "math \u00b7 passWhat's 59382 \u00d7 912?$59382 \\times 912 = 54,156,384$. That's a big number! I remember you mentioned something about that in the past match \u2014 maybe it was part of a high-stakes run? Let me kno",
+  "secs": 16.6
+ },
+ {
+  "step": "desktop pet shows up",
+  "ok": true,
+  "detail": "",
+  "secs": 8.1
+ },
+ {
+  "step": "update check",
+  "ok": true,
+  "detail": "on 1.59, newest 1.29",
+  "secs": 0.1
+ },
+ {
+  "step": "log out and back in",
+  "ok": true,
+  "detail": "6",
+  "secs": 1.0
+ }
+]
