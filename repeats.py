@@ -101,10 +101,10 @@ def sentences(text):
     return out
 
 
-def _covered(a, b):
-    """How much of a is in b, counting only runs of 2+ words in the same order."""
+def _covered(a, b, run=2):
+    """How much of a is in b, counting only runs of run+ words in the same order."""
     m = difflib.SequenceMatcher(None, a, b, autojunk=False)
-    return sum(bl.size for bl in m.get_matching_blocks() if bl.size >= 2) / len(a)
+    return sum(bl.size for bl in m.get_matching_blocks() if bl.size >= run) / len(a)
 
 
 def same(a, b):
@@ -113,7 +113,9 @@ def same(a, b):
         return True
     if len(a) < 3 or len(b) < 2:
         return False
-    return difflib.SequenceMatcher(None, a, b, autojunk=False).ratio() >= 0.75 or (len(a) >= 4 and _covered(a, b) >= 0.8)
+    return (difflib.SequenceMatcher(None, a, b, autojunk=False).ratio() >= 0.75 or (len(a) >= 4 and _covered(a, b) >= 0.8)
+            # a long stretch word for word: "you got a bot frag today, right?" after "…got a bot frag today, you know"
+            or (len(a) >= 5 and _covered(a, b, run=4) >= 0.6))
 
 
 def _real(w):

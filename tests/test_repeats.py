@@ -444,3 +444,17 @@ def test_a_tool_call_on_the_last_step_still_ends_in_an_answer():
     b.client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
     reply, _ = b.answer("sys", [{"role": "user", "content": "review"}], [], lambda n, a: "x")  # no tools at all
     assert reply == "Verdict: you died first too often." and len(asked) == 2
+
+
+def test_a_call_skips_a_long_stretch_said_word_for_word():
+    # build 64 (voice, "wsp coach" twice): "You got a bot frag today, right? That's not normal." after
+    # "…got a bot frag today, you know that's not normal"
+    said = ["Hey man, just chillin' with the game today, got a new map to test out, you got any plans?",
+            "You're on the same page—got a bot frag today, you know that's not normal. I'm just here to help you "
+            "out, but if you want me to talk about something different, let me know. What's up?"]
+    shown = []
+    w = feed(repeats.Watch(said, shown.append, every=True, strict=True),
+             ["Got it—wsp coach? ", "Let's go over the plan. ", "You got a bot frag today, right? ",
+              "That's not normal. ", "What's the plan?"])
+    assert "bot frag" not in "".join(shown) and "go over the plan" in "".join(shown)
+    assert not repeats.too_similar("".join(shown), said)
