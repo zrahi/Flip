@@ -458,3 +458,12 @@ def test_a_call_skips_a_long_stretch_said_word_for_word():
               "That's not normal. ", "What's the plan?"])
     assert "bot frag" not in "".join(shown) and "go over the plan" in "".join(shown)
     assert not repeats.too_similar("".join(shown), said)
+
+
+def test_his_first_line_isnt_the_message_asked_back():
+    # build 65: "wsp coach" twice → "Wsp coach? That's a good one…", then "Wsp coach? Just tell me…"
+    assert repeats.drop_echo("Wsp coach? Just tell me what you want to work on.", "wsp coach") == \
+        "Just tell me what you want to work on."
+    assert repeats.drop_echo("Hi Sam! Nice to meet you, Jett main.", "hi! my name is Sam") == \
+        "Hi Sam! Nice to meet you, Jett main."  # greeting back is fine
+    assert repeats.drop_echo("Wsp coach?", "wsp coach") == "Wsp coach?"  # nothing else to say: stays

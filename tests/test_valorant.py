@@ -312,3 +312,25 @@ def test_a_call_never_says_a_made_up_agent(monkeypatch):
     lines[:] = ["Play Cerberus. "]
     reply, _, _ = b.chat("madeup3", "who should I play on Bind?", on_text=lambda p: None)
     assert "Cerberus" not in reply and "sure" in reply
+
+
+def test_a_made_up_agent_with_dots_is_caught():
+    import facts
+    import repeats
+
+    # build 65: "play a frontline agent like D.V.A. (or Defender of the Arena)"
+    reply = ("On Ascent, you should play a frontline agent like D.V.A. (or Defender of the Arena) if you want "
+             "entry. Omen is great there too.")
+    assert repeats._keep(facts.join_initials(reply), lambda s: not facts.made_up(s)) == "Omen is great there too."
+    assert facts.made_up("On Ascent, you should play a frontline agent like D.")  # a call cuts at the first dot
+    assert facts.join_initials("Lock in KAY/O. Omen too.") == "Lock in KAY/O. Omen too."
+
+
+def test_no_rifle_on_an_eco():
+    import facts
+
+    # build 65: "On eco rounds in Valorant, you should use a long-range weapon like the Vandal"
+    assert facts.made_up("On eco rounds in Valorant, you should use a long-range weapon like the Vandal.")
+    for fine in ["On eco, buy a Sheriff.", "Don't buy a Vandal on an eco.", "On anti-eco rounds, hold with the Phantom.",
+                 "Save rounds: keep your Vandal alive.", "Buy a Vandal next round."]:
+        assert not facts.made_up(fine), fine

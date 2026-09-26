@@ -293,6 +293,18 @@ PREAMBLE = re.compile(r"^\W*(?:ay+,?\s*)?(?:(?:sam|bro|man)\W+)?(you'?re (?:on t
                       re.I)
 
 
+def drop_echo(reply, message):
+    """Without a first sentence that just asks the user's message back ("wsp coach" → "Wsp coach? …"): a
+    greeting back ("Hi Sam!") stays."""
+    m = re.match(r"\s*([^.!?…\n]*[.!?…]+)[\"'”’)\]*_]*\s*", reply)
+    if not m:
+        return reply
+    first, rest = words(m.group(1)), reply[m.end():]
+    if first and m.group(1).rstrip().endswith("?") and set(first) <= set(words(message)) and len(words(rest)) >= 3:
+        return rest[:1].upper() + rest[1:]
+    return reply
+
+
 def drop_preamble(reply):
     """The answer without an intro sentence ("You're on the right track with that retake plan."), if the
     rest still says something."""

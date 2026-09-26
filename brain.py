@@ -628,13 +628,13 @@ class Brain:
             emit(reply)
         if not voice and reply:
             reply = repeats.drop_meta(reply)  # the window shows the final reply, so it can still go here
-            reply = repeats.fresh_opener(reply, earlier)
+            reply = repeats.fresh_opener(repeats.drop_echo(reply, text), earlier)
             # the app makes pictures and videos, never the reply: no "just made it — the video's in your chat"
             if router.MEDIA_NOTE in way.note and router.MEDIA_CLAIM.search(reply):
                 reply = "I didn't make that yet 😅 say \"make a video of …\" or \"make a picture of …\" and I'll make it for real 🎬"
             if gaming:
-                kept = repeats._keep(reply, lambda s: not made_up(s))
-                if kept != reply:
+                kept = repeats._keep(facts.join_initials(reply), lambda s: not made_up(s))
+                if kept != facts.join_initials(reply).strip():
                     reply = kept if len(repeats.words(kept)) >= 4 else NOT_SURE
             if way.kind in ("valorant", "review"):
                 reply = repeats.drop_preamble(reply)  # the answer first, not "you're on the right track…"

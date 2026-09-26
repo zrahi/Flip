@@ -8,7 +8,7 @@ import re
 
 import router
 
-NAME = r"([A-Z][A-Za-z'’/-]{2,})"
+NAME = r"([A-Z][A-Za-z'’/.-]{2,})"
 # where only an agent, a gun, a map or an ability fits
 SLOTS = [
     re.compile(r"\b(?i:play|playing|pick|picking|lock(?:ing)? in|main|maining|swap to|switch to|go with|instalock)\s+"
@@ -52,16 +52,44 @@ def _known():
 
 def _real(name):
     known = _known()
-    n = name.lower().replace("’", "'").removesuffix("'s").strip("'-/")
+    n = name.lower().replace("’", "'").rstrip(".").removesuffix("'s").strip("'-/")
     return n in known or n.replace("/", "") in known or all(p in known for p in re.split(r"[/-]", n) if p)
 
 
+# "an agent like D." — a sentence cut at the first dot of a made-up "D.V.A." (no agent is one letter)
+INITIAL = re.compile(r"\b(?i:agents?|duelists?|controllers?|initiators?|sentinels?|someone)\s*,?\s+(?:like|such as)\s+"
+                     r"([A-Z]\.)\s*$")
+
+
+def join_initials(text):
+    """"D.V.A." → "DVA.", so a name with dots stays one name when the text is split into sentences."""
+    def joined(m):
+        after = text[m.end():]
+        ends = not after.strip() or re.match(r"\s+[A-Z]", after)  # the dot also ended the sentence
+        return m.group(0).replace(".", "") + ("." if ends else "")
+    return re.sub(r"\b(?:[A-Z]\.){2,}", joined, text)
+
+
+# an eco (saving) round can't afford these; "anti-eco" is the enemy saving, so rifles are fine then
+ECO = re.compile(r"(?<![-\w])(?<!anti )(?<!anti-)eco(?: round)?s?\b|\bsave rounds?\b|\bfull save\b", re.I)
+PRICEY = re.compile(r"\b(vandal|phantom|operator|odin|guardian|bulldog|outlaw|judge)\b", re.I)
+NOT = re.compile(r"\b(don'?t|do not|never|not|no|avoid|skip|instead of|can'?t|won'?t|unless|anti|keep|alive|drop|dropped|picked up|leftover|already have)\b", re.I)
+
+
 def made_up(sentence):
-    """The first name in sentence that sits where an agent or a gun goes but isn't one (or None)."""
+    """The first name in sentence that sits where an agent or a gun goes but isn't one (or None), or a gun an
+    eco round can't buy ("on eco rounds, use a long-range weapon like the Vandal")."""
+    if ECO.search(sentence) and not NOT.search(sentence):
+        m = PRICEY.search(sentence)
+        if m:
+            return f"{m.group(1)} on an eco"
+    m = INITIAL.search(sentence)
+    if m:
+        return m.group(1)
     for slot in SLOTS:
         for m in slot.finditer(sentence):
             if not _real(m.group(1)):
-                return m.group(1)
+                return m.group(1).rstrip(".")
     return None
 
 
